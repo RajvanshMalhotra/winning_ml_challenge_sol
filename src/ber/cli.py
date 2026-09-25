@@ -7,6 +7,9 @@ from ber.config import load_config
 # name -> (module, help). Each module defines add_arguments(parser) and run(cfg, args).
 COMMANDS: dict[str, tuple[str, str]] = {
     "show-config": ("ber.cli", "print the resolved config"),
+    "normalize": ("ber.normalize", "build records_{family}.parquet"),
+    "split": ("ber.split", "assign A_train/A_val/B splits and B folds"),
+    "block-sparse": ("ber.blocking.sparse", "char TF-IDF top-k + key blocks per country"),
 }
 
 
