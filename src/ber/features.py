@@ -97,6 +97,9 @@ def pair_features(pairs: pd.DataFrame, rec: pd.DataFrame, workers: int = -1,
         best = f.groupby(s1)[c].transform("max")
         f[f"{c}_gap"] = (best - f[c]).astype(np.float32)
     f["s1_n_cands"] = f.groupby(s1)["tfidf_sim"].transform("size").astype(np.int16)
+    for c in ["hard_emb_sim", "hard_emb_rank", "from_hardname", "graph_paths", "from_graph"]:  # extra channels
+        if c in pairs:
+            f[c] = pairs[c].to_numpy()
     # per-candidate context (computed on the FULL candidate table upstream, passed through if present)
     for c in ["cand_degree", "cand_best_sim", "is_cand_best"]:
         if c in pairs:

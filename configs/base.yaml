@@ -57,6 +57,8 @@ train:
 matcher:
   n_entities: 50000         # B-split S1s sampled for training/validation (all their candidates); 200k too slow on the shared node
   rounds: 3000              # early stopping on each fold
+  extra_channels: [hardname, graph]   # union these candidate channels into the matcher's pairs
+  idf_features: true
   lgbm:
     learning_rate: 0.05
     num_leaves: 127

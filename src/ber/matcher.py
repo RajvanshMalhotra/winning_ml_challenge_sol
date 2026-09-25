@@ -59,12 +59,41 @@ def embedding_cosine(pairs: pd.DataFrame, rec: pd.DataFrame, model_key: str, mod
     return np.einsum("ij,ij->i", q, d).astype(np.float32)
 
 
+def add_extra_channels(cfg: dict, family: str, pairs: pd.DataFrame, s1_set: set[str], channels: list[str]) -> pd.DataFrame:
+    """Union extra candidate channels into `pairs` (for the given S1s), with per-channel indicator features.
+    hardname: Qwen name-embedding neighbours of hard records (cand_hardname_<family>.parquet)
+    graph:    neighbours (record-record KG edges) of each S1's strong candidates (kg_recrec_edges_<family>.parquet)"""
+    rd = run_dir(cfg)
+    extra = []
+    if "hardname" in channels and (rd / f"cand_hardname_{family}.parquet").exists():
+        h = pd.read_parquet(rd / f"cand_hardname_{family}.parquet")
+        h = h[h.s1_id.isin(s1_set)].rename(columns={"emb_sim": "hard_emb_sim", "emb_rank": "hard_emb_rank"})
+        extra.append(h.assign(from_hardname=np.int8(1)))
+    if "graph" in channels and (rd / f"kg_recrec_edges_{family}.parquet").exists():
+        ids = pd.read_parquet(records_path(cfg, family), columns=["entity_id"]).entity_id.to_numpy()
+        code = pd.Series(np.arange(len(ids)), index=ids)
+        seeds = pairs[(pairs.tfidf_rank <= 3) | (pairs.key_hits >= 2)]
+        e = pd.read_parquet(rd / f"kg_recrec_edges_{family}.parquet", columns=["a", "b"])
+        g = pd.DataFrame({"s1_id": seeds.s1_id.to_numpy(), "a": code.reindex(seeds.cand_id).to_numpy()}).merge(e, on="a")
+        g = pd.DataFrame({"s1_id": g.s1_id.to_numpy(), "cand_id": ids[g.b.to_numpy()]})
+        g = g.groupby(["s1_id", "cand_id"]).size().rename("graph_paths").reset_index()
+        extra.append(g.assign(from_graph=np.int8(1)))
+    for x in extra:
+        pairs = pairs.merge(x, on=["s1_id", "cand_id"], how="outer")
+    for c, fill in [("tfidf_sim", 0.0), ("tfidf_rank", 999), ("key_hits", 0), ("name_sim", 0.0), ("name_key", 0),
+                    ("hard_emb_sim", 0.0), ("hard_emb_rank", 99), ("from_hardname", 0), ("graph_paths", 0), ("from_graph", 0)]:
+        if c in pairs:
+            pairs[c] = pairs[c].fillna(fill)
+    return pairs
+
+
 def build_dataset(cfg: dict, truth: dict[str, set[str]], mcfg: dict) -> pd.DataFrame:
     splits = pd.read_parquet(splits_path(cfg))
     b = splits[splits.split == "B"]
     s1 = pd.concat([g.sample(min(len(g), round(mcfg["n_entities"] * len(g) / len(b))), random_state=cfg["seed"])
                     for _, g in b.groupby("country")])  # stratified by country
     pairs = load_pairs(cfg, "train", s1.s1_id.tolist())
+    pairs = add_extra_channels(cfg, "train", pairs, set(s1.s1_id), mcfg.get("extra_channels", []))
     ctx = candidate_context(cand_sparse_path(cfg, "train"))
     pairs = pairs.join(ctx, on="cand_id")
     pairs["is_cand_best"] = (pairs.tfidf_sim >= pairs.cand_best_sim - 1e-6).astype(np.int8)
