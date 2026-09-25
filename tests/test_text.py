@@ -125,4 +125,7 @@ def test_extract_state():
     assert extract_state("Door No 236, Bengaluru, ಕರ್ನಾಟಕ", "India", LEX) == "karnataka"
     assert extract_state("NULL, MH, 47/1 Airport Road", "India", LEX) == "maharashtra"
     assert extract_state("12 Main Street, Springfield", "US", LEX) == ""
+    assert extract_state("1600 Penn Ave, Washington, DC", "US", LEX) == "district of columbia"  # city named Washington
+    assert extract_state("45 Main St, Washington, Utah", "US", LEX) == "utah"
+    assert extract_state("Washington, 12 Pine St, Seattle, WA", "US", LEX) == "washington"
     assert extract_state("20 Rue Parmentier, Dunkerque, Nord", "France", LEX) == ""  # no state lexicon

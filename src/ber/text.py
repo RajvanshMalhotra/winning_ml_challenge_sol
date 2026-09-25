@@ -191,7 +191,7 @@ _STATE_NAMES: dict[str, frozenset[str]] = {}
 
 def extract_state(raw: str, country: str, lex: Lexicon) -> str:
     """Full state name found as an address component (abbreviations and native script mapped); '' if none
-    or if the country has no state lexicon (e.g. France)."""
+    or if the country has no state lexicon (e.g. France). Abbreviations win; otherwise the last full name."""
     abbr = lex.states.get(country)
     if not abbr:
         return ""
@@ -199,8 +199,11 @@ def extract_state(raw: str, country: str, lex: Lexicon) -> str:
     for native, english in lex.native.items():
         if native in raw:
             raw = raw.replace(native, english)
-    for comp in fold(raw).split(","):
-        comp = abbr.get(comp.strip(), comp.strip())
-        if comp in names:
-            return comp
-    return ""
+    # An abbreviation component (", TX,") is unambiguous; a full name can also be a city ("Washington, UT"),
+    # so among full-name matches take the last one (the state follows the city in these addresses).
+    comps = [c.strip() for c in fold(raw).split(",")]
+    abbr_hits = [abbr[c] for c in comps if c in abbr]
+    if abbr_hits:
+        return abbr_hits[-1]
+    full_hits = [c for c in comps if c in names]
+    return full_hits[-1] if full_hits else ""
