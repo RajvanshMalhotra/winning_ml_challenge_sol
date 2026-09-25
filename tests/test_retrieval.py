@@ -15,3 +15,13 @@ def test_recall_at_k_micro():
     r = recall_at_k(["S1-0", "S1-1"], q, d_ids, d, truth, ks=[1, 50])
     assert r[1] == pytest.approx(2 / 3)
     assert r[50] == pytest.approx(1.0)
+
+
+def test_found_rank():
+    from ber.contrastive.retrieval import found_rank
+    rng = np.random.default_rng(0)
+    d = rng.normal(size=(20, 8)).astype(np.float32)
+    d /= np.linalg.norm(d, axis=1, keepdims=True)
+    ids = [f"S2-{i}" for i in range(20)]
+    f = found_rank(["S1-0"], d[[3]], ids, d, {"S1-0": {"S2-3", "S2-99"}}, k=5)
+    assert f == {("S1-0", "S2-3"): 1}

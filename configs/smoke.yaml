@@ -1,4 +1,4 @@
-base: configs/base.yaml
+base: configs/v2.yaml
 run_name: smoke
 bakeoff:
   eval_distractors_per_country: 5000

@@ -17,9 +17,23 @@ def hard_negatives(cands: pd.DataFrame, truth: dict[str, set[str]], s1_ids: list
 
 def sample_triplets(truth: dict[str, set[str]], s1_ids: list[str], hard_negs: dict[str, list[str]],
                     country_pool: dict[str, np.ndarray], id_country: dict[str, str],
-                    n_rounds: int, p_intra: float, seed: int) -> pd.DataFrame:
+                    n_rounds: int, p_intra: float, seed: int,
+                    preferred: dict[str, list[str]] | None = None, n_extra_rounds: int = 0) -> pd.DataFrame:
+    """One triplet per entity per round. `preferred` (S1 -> some of its matches, e.g. cross-script ones) gets
+    `n_extra_rounds` additional rounds in which the positive is always drawn from its preferred matches."""
     rng = np.random.default_rng(seed)
     rows = []
+
+    def negative(s1: str, group: set[str]) -> str:
+        negs = hard_negs.get(s1) or []
+        if negs:
+            return negs[int(rng.integers(len(negs)))]
+        pool = country_pool[id_country[s1]]
+        neg = pool[int(rng.integers(len(pool)))]
+        while neg in group:
+            neg = pool[int(rng.integers(len(pool)))]
+        return neg
+
     for _ in range(n_rounds):
         for s1 in s1_ids:
             matches = sorted(truth.get(s1, ()))
@@ -31,15 +45,11 @@ def sample_triplets(truth: dict[str, set[str]], s1_ids: list[str], hard_negs: di
                 anchor, pos = matches[i], matches[j]
             else:
                 anchor, pos = s1, matches[int(rng.integers(len(matches)))]
-            negs = hard_negs.get(s1) or []
-            if negs:
-                neg = negs[int(rng.integers(len(negs)))]
-            else:
-                pool = country_pool[id_country[s1]]
-                neg = pool[int(rng.integers(len(pool)))]
-                while neg in group:
-                    neg = pool[int(rng.integers(len(pool)))]
-            rows.append((anchor, pos, neg))
+            rows.append((anchor, pos, negative(s1, group)))
+    for _ in range(n_extra_rounds if preferred else 0):
+        for s1, pref in preferred.items():
+            if pref:
+                rows.append((s1, pref[int(rng.integers(len(pref)))], negative(s1, set(truth[s1]) | {s1})))
     return pd.DataFrame(rows, columns=["anchor_id", "positive_id", "negative_id"])
 
 

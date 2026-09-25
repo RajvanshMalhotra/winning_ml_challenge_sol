@@ -10,7 +10,7 @@ from ber.blocking.sparse import cand_sparse_path
 from ber.config import run_dir
 from ber.contrastive.encoders import ENCODERS, encode, load_encoder
 from ber.contrastive.pairs import hard_negatives, render_triplets, sample_triplets
-from ber.contrastive.retrieval import recall_at_k
+from ber.contrastive.retrieval import found_rank
 from ber.contrastive.train import finetune
 from ber.io import read_truth
 from ber.normalize import records_path
@@ -18,6 +18,7 @@ from ber.split import splits_path
 from ber.text import record_text
 
 TIE_EPS = 0.005
+NATIVE_RE = r"[\u0900-\u0DFF]"  # Indic scripts
 
 
 def build_eval_set(records: pd.DataFrame, splits: pd.DataFrame, truth: dict, n_distractors: int,
@@ -44,7 +45,7 @@ def result_path(cfg: dict, model_key: str, tag: str) -> Path:
 
 
 def _mean_r50(r: dict) -> float:
-    return float(np.mean([v["50"] for v in r["recall"].values()]))
+    return float(np.mean([v["50"] for c, v in r["recall"].items() if not c.endswith("-native")]))
 
 
 def select_winner(results: list[dict]) -> str:
@@ -90,6 +91,7 @@ def _run(cfg: dict, model_key: str, mode: str, train_countries: list[str] | None
     truth = read_truth(cfg["paths"]["data_dir"])
     ev = _eval_set(cfg, records, truth)
     rec = records.set_index("entity_id")
+    native_name = dict(zip(records.entity_id, records.name_raw.str.contains(NATIVE_RE, regex=True)))
     stats = {"peak_train_mem_gb": 0.0, "train_seconds": 0.0}
     model_path = None
     if mode == "finetune":
@@ -102,9 +104,14 @@ def _run(cfg: dict, model_key: str, mode: str, train_countries: list[str] | None
         cands = pd.read_parquet(cand_sparse_path(cfg, "train"), columns=["s1_id", "cand_id"])
         others = records[records.source != 1]
         pool = {c: g.entity_id.to_numpy() for c, g in others.groupby("country")}
+        native = set(records.entity_id[records.name_raw.str.contains(NATIVE_RE, regex=True)])
+        preferred = {s: [m for m in truth[s] if m in native] for s in s1_ids}
+        preferred = {s: v for s, v in preferred.items() if v and s not in native}  # English S1 -> native-script match
         trip = sample_triplets(truth, s1_ids, hard_negatives(cands, truth, s1_ids), pool,
                                dict(zip(records.entity_id, records.country)),
-                               cfg["train"]["n_rounds"], cfg["train"]["p_intra"], cfg["seed"])
+                               cfg["train"]["n_rounds"], cfg["train"]["p_intra"], cfg["seed"],
+                               preferred, cfg["train"].get("cross_script_extra_rounds", 0))
+        print(f"triplets: {len(trip):,} (cross-script S1s oversampled: {len(preferred):,})", flush=True)
         train_df = render_triplets(trip, rec, spec, cfg["train"]["aug_prob"], cfg["seed"])
         out_dir = run_dir(cfg) / "bakeoff" / f"{model_key}__{tag}"
         stats = finetune(spec, train_df, out_dir, cfg["train"], cfg["gpu"]["mem_fraction"], cfg["seed"])
@@ -121,9 +128,14 @@ def _run(cfg: dict, model_key: str, mode: str, train_countries: list[str] | None
         secs += time.perf_counter() - t0
         n_docs += len(d)
         dim = d_emb.shape[1]
-        r = recall_at_k(q, q_emb, d, d_emb, truth, cfg["bakeoff"]["ks"], n_threads=cfg["n_jobs"])
-        recall[country] = {str(k): v for k, v in r.items()}
-        print(model_key, tag, country, recall[country], flush=True)
+        ks = cfg["bakeoff"]["ks"]
+        found = found_rank(q, q_emb, d, d_emb, truth, max(ks), n_threads=cfg["n_jobs"])
+        pairs = [(qq, t) for qq in q for t in truth[qq]]
+        recall[country] = {str(k): sum(found.get(p, 10**9) <= k for p in pairs) / len(pairs) for k in ks}
+        nat = [p for p in pairs if native_name.get(p[1], False)]
+        if nat:
+            recall[f"{country}-native"] = {str(k): sum(found.get(p, 10**9) <= k for p in nat) / len(nat) for k in ks}
+        print(model_key, tag, country, recall[country], recall.get(f"{country}-native", ""), flush=True)
     test_src = pd.read_parquet(records_path(cfg, "test"), columns=["source"]).source
     result = {"model": model_key, "tag": tag, "dim": dim, "recall": recall,
               "throughput_rps": n_docs / secs, "test_vectors_gb": int((test_src != 1).sum()) * dim * 2 / 1e9,

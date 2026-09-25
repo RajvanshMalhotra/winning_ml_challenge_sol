@@ -38,3 +38,12 @@ def test_render_prefixes():
     assert out.iloc[0].tolist() == ["q: name: A Co | address: 1 Main St, X | country: US",
                                     "d: name: A CO | address: 1 MAIN ST | country: US",
                                     "d: name: B Inc | address: 2 Elm | country: US"]
+
+
+def test_extra_rounds_force_preferred_positive():
+    hn = {"S1-a": ["S2-x"], "S1-b": []}
+    base = sample_triplets(TRUTH, ["S1-a", "S1-b"], hn, POOL, IDC, n_rounds=1, p_intra=0.0, seed=0)
+    t = sample_triplets(TRUTH, ["S1-a", "S1-b"], hn, POOL, IDC, n_rounds=1, p_intra=0.0, seed=0,
+                        preferred={"S1-a": ["S3-a1"]}, n_extra_rounds=5)
+    extra = t.iloc[len(base):]
+    assert len(extra) == 5 and (extra.anchor_id == "S1-a").all() and (extra.positive_id == "S3-a1").all()

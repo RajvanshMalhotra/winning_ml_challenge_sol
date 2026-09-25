@@ -46,6 +46,7 @@ train:
   n_entities: 300000
   n_rounds: 3
   p_intra: 0.3
+  cross_script_extra_rounds: 1   # extra triplets: English S1 -> Indian-script match
   aug_prob: 0.5
   batch_size: 256
   cached_mini_batch_size: 32
