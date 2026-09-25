@@ -48,7 +48,8 @@ def _tfidf_matrices(s1_text: pd.Series, other_text: pd.Series, cfg_tfidf: dict) 
     keep = (df >= cfg_tfidf["min_df"]) & (df <= cfg_tfidf.get("max_df", 1.0) * n_docs)
     idf = (np.log((1 + n_docs) / (1 + df)) + 1).astype(np.float32) * keep
     x.data = 1 + np.log(x.data)  # sublinear tf, as in TfidfVectorizer(sublinear_tf=True)
-    x = normalize(x @ sp.diags(idf), norm="l2", copy=False).tocsr()
+    x.data *= idf[x.indices]  # column scaling in O(nnz); `x @ sp.diags(idf)` is a slow single-core sparse matmul
+    x = normalize(x, norm="l2", copy=False).tocsr()
     x.eliminate_zeros()
     return x[: len(s1_text)], x[len(s1_text):]
 
