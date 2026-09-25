@@ -38,6 +38,27 @@ def load_pairs(cfg: dict, family: str, s1_ids: list[str]) -> pd.DataFrame:
     return d.to_table(columns=cols, filter=pc.field("s1_id").isin(s1_ids)).to_pandas()
 
 
+def embedding_cosine(pairs: pd.DataFrame, rec: pd.DataFrame, model_key: str, model_path: str, cfg: dict) -> np.ndarray:
+    """Cosine of the fine-tuned bi-encoder embeddings of the two records of each pair (each record embedded once)."""
+    import torch
+
+    from ber.contrastive.encoders import ENCODERS, encode, load_encoder
+    from ber.text import record_text
+    spec = ENCODERS[model_key]
+    model = load_encoder(spec, path=model_path, mem_fraction=cfg["gpu"]["mem_fraction"])
+    s1_ids, c_ids = pd.unique(pairs.s1_id), pd.unique(pairs.cand_id)
+    text = lambda ids: [record_text(n, a, c) for n, a, c in zip(rec.name_raw.reindex(ids), rec.addr_raw.reindex(ids),
+                                                                  rec.country.reindex(ids))]
+    bs = cfg["bakeoff"]["encode_batch_size"]
+    eq = pd.Series(list(encode(model, text(s1_ids), spec.query_prefix, bs)), index=s1_ids)
+    ed = pd.Series(list(encode(model, text(c_ids), spec.doc_prefix, bs)), index=c_ids)
+    del model
+    torch.cuda.empty_cache()
+    q = np.stack(eq.reindex(pairs.s1_id).to_numpy()).astype(np.float32)
+    d = np.stack(ed.reindex(pairs.cand_id).to_numpy()).astype(np.float32)
+    return np.einsum("ij,ij->i", q, d).astype(np.float32)
+
+
 def build_dataset(cfg: dict, truth: dict[str, set[str]], mcfg: dict) -> pd.DataFrame:
     splits = pd.read_parquet(splits_path(cfg))
     b = splits[splits.split == "B"]
@@ -50,6 +71,9 @@ def build_dataset(cfg: dict, truth: dict[str, set[str]], mcfg: dict) -> pd.DataF
     rec = pd.read_parquet(records_path(cfg, "train"), columns=REC_COLS).set_index("entity_id")
     idf = name_idf(rec) if mcfg.get("idf_features", True) else None
     feats = pair_features(pairs, rec, workers=cfg["n_jobs"], idf=idf)
+    if mcfg.get("embed_model_path"):
+        feats["emb_cos"] = embedding_cosine(pairs, rec, mcfg.get("embed_model_key", "bgem3"), mcfg["embed_model_path"], cfg)
+        feats["emb_cos_gap"] = (feats.groupby(pairs.s1_id.to_numpy()).emb_cos.transform("max") - feats.emb_cos).astype(np.float32)
     meta = s1.set_index("s1_id")
     feats["s1_id"], feats["cand_id"] = pairs.s1_id.to_numpy(), pairs.cand_id.to_numpy()
     feats["fold"] = meta.fold.reindex(pairs.s1_id).to_numpy()
@@ -105,7 +129,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(cfg: dict, args: argparse.Namespace) -> None:
     t0 = time.perf_counter()
     mcfg = cfg["matcher"]
-    out_dir = run_dir(cfg) / "matcher"
+    out_dir = run_dir(cfg) / mcfg.get("out_name", "matcher")
     out_dir.mkdir(exist_ok=True)
     truth = read_truth(cfg["paths"]["data_dir"])
     df = build_dataset(cfg, truth, mcfg)
@@ -139,6 +163,8 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
           "## F0.5 vs cut-off", "", md_table(grid), "",
           "## Top 20 features (mean gain)", "", md_table(imp.head(20).rename_axis("feature").reset_index(name="gain"))]
     Path("docs/results").mkdir(parents=True, exist_ok=True)
-    Path("docs/results/model_a.md").write_text("\n".join(md) + "\n")
+    Path("docs/results").mkdir(parents=True, exist_ok=True)
+    (out_dir / "report.md").write_text("\n".join(md) + "\n")
+    Path(f"docs/results/{mcfg.get('report_name', 'model_a')}.md").write_text("\n".join(md) + "\n")
     print("\n".join(md[:8]), flush=True)
     print(f"done in {time.perf_counter() - t0:.0f}s", flush=True)

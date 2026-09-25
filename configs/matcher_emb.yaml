@@ -1,0 +1,6 @@
+base: configs/v2.yaml
+matcher:
+  out_name: matcher_emb
+  report_name: model_a_emb
+  embed_model_key: bgem3
+  embed_model_path: artifacts/v2/bakeoff/bgem3__finetune/model
