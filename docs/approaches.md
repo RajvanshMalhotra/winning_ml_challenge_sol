@@ -243,6 +243,37 @@ It predicts P(entity has ≥1 match). Its output feeds §5.3 as a prior on the e
 
 ---
 
+## 8a. Data findings (EDA run on the HPC, `scripts/eda.py`)
+
+| | S1 | S2 | S3 |
+|---|---|---|---|
+| Train | 2.21M (US 1.32M / IN 0.88M) | 5.03M | 5.29M |
+| Test | 1.73M (IN 0.81M / US 0.66M / **FR 0.26M = 15%**) | 4.89M | 5.08M |
+
+- **Singletons are only 5.6%** (same in both countries). The mean is about 3.7 matches per entity, spread as 2 (17%), 3 (24%), 4 (22%), 5 (15%) and 6+ (11%). **Recall matters a lot.** The metric is precision-weighted, but a typical entity has 3–5 true matches, so missing any of them costs real score.
+- **Every S2/S3 record belongs to at most one S1 entity** (0 violations), and **there are no cross-country links.** The one-owner assignment constraint (§5.1) and a hard country partition are both **safe**.
+- **Sources 2 and 3 contain internal duplicates.** One entity can have up to 5 S2 records and 6 S3 records. That makes S2↔S3 clustering (§5.2) a strong signal: find the group, then link the whole group.
+- **About 26% of S2 and S3 records are distractors** that match nothing, so the matcher must learn to reject them.
+- **Postal codes are almost absent** (US ≈10%, India ≈1%, France ≈0.5%). **Postal blocking is useless.** Block on house or street number, street tokens, city, and name tokens instead.
+- The noise looks synthetic, with a fixed set of operators:
+  - case changes (S2 is often all-caps)
+  - `NULL` placeholder tokens
+  - injected filler words (`The The`, `Mr`, `M/s`, `Center`, `Group`)
+  - token deletion and truncation (`Southern`)
+  - domain-style names (`fafloonpetcare.com`, `#southerneducational`)
+  - accent injection even in US names (`Bérto`)
+  - character typos (`S0lutions`, `Atlanat`)
+  - house-number formatting (`01130`, `1130-`, `4-7/1`)
+  - state abbreviated ↔ full (`TX`/`Texas`, `MH`/`Maharashtra`)
+  - native script for state names (`ಕರ್ನಾಟಕ`)
+  - reordered address components
+  - PO box / unit number added or dropped
+
+  **If we can reproduce these operators, we can generate training pairs for French-style records** (§4.4).
+- France (test only) uses the same formats: legal suffixes `SARL/SAS/SASU/SCI/S.A.`, `& Fils`/`& Frères`, `R.`→`Rue`, `AV`→`Avenue`, `bis`, and region↔département (`Nouvelle-Aquitaine`/`Gironde`, `Hauts-de-France`/`Nord`).
+- **Scale:** the test set has 1.73M S1 entities against ~10M S2/S3 records. With about 30 candidates each, that's roughly 50M pairs. A small cross-encoder can score that on the H100. A 7B LLM can only handle the uncertain band.
+- With 2.2M labeled entities we have far more training data than a GBDT needs, so we can subsample. The large volume helps most when training the contrastive bi-encoder.
+
 ## 8. What the data needs to tell us before we lock the design
 
 1. Record counts per source and per country. These decide whether a cross-encoder or LLM can score every candidate or only a subset.
