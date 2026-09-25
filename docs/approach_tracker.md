@@ -10,7 +10,7 @@ Every approach from `docs/approaches.md` is listed here as its **own work item**
 3. Produce exactly the **Output** listed, using the shared formats below, so other people's work plugs in without coordination.
 4. Report the **Done when** metric in the team channel, and flip the status.
 
-_Last updated: 2026-09-25_
+_Last updated: 2026-09-25. N11–N18 code done; they take effect on the next `normalize` run (before Plan 2 features). Real postal codes turn out to be essentially absent (India 0% with the strict PIN pattern)._
 
 ---
 
@@ -72,14 +72,14 @@ All artifacts live on the HPC under `~/winning_ml_challenge_sol/artifacts/v1/`. 
 | N8 | ✅ | Native-script state names → English (17) | | none | `addr_norm` | verified on the data |
 | N9 | ✅ | City aliases (`bangalore→bengaluru`, `hyd`, `kol`) | | none | `addr_norm` | done |
 | N10 | ✅ | House-number extraction and canonicalization (`01130`→`1130`, `4-7/1`→`47/1`) | | none | `house_no`, `num_tokens` | tested |
-| N11 | ⬜ | **DBA / trade-name splitting**: split on `dba`, `d/b/a`, `t/a`, `trading as`, `(…)`, FR `enseigne`, and match against each part | | none | new column `name_parts` | unit tests + number of records affected |
-| N12 | ⬜ | **Landmark field**: split out `near X`, `opp X`, `behind X`, `nr X` into `landmark` and remove them from `addr_norm` | | none | new column `landmark` | unit tests; pair completeness doesn't drop |
-| N13 | ⬜ | **Postal-code extraction as a feature** (IN 6-digit PIN, US 5/5+4 ZIP, FR 5-digit + département) | | none | new column `postal` | unit tests |
-| N14 | ⬜ | **Unit / floor / PO box as separate fields** (so `Unit 609` vs no unit is not a mismatch) | | none | new column `unit` | unit tests |
-| N15 | ⬜ | **Phonetic keys**: Double Metaphone of `name_core` tokens | | none | new column `name_phonetic` | unit tests |
-| N16 | ⬜ | **Transliteration skeleton** for Indian names (`aa→a`, `ee→i`, `sh→s`, `v↔w`, `ph→f`) | | none | new column `name_skeleton` | unit tests |
-| N17 | ⬜ | **Mojibake repair** (`Â`, `â` artifacts from bad UTF-8 decoding) | | none | fix in `fold` | unit tests |
-| N18 | ⬜ | **Token-sorted name** (handles word-order swaps) | | none | new column `name_sorted` | unit tests |
+| N11 | ✅ | **DBA / trade-name splitting**: split on `dba`, `d/b/a`, `t/a`, `trading as`, `(…)`, FR `enseigne`, and match against each part | | none | new column `name_parts` | unit tests + number of records affected |
+| N12 | ✅ | **Landmark field**: split out `near X`, `opp X`, `behind X`, `nr X` into `landmark` and remove them from `addr_norm` | | none | new column `landmark` | unit tests; pair completeness doesn't drop |
+| N13 | ✅ | **Postal-code extraction as a feature** (IN 6-digit PIN, US 5/5+4 ZIP, FR 5-digit + département) | | none | new column `postal` | unit tests |
+| N14 | ✅ | **Unit / floor / PO box as separate fields** (so `Unit 609` vs no unit is not a mismatch) | | none | new column `unit` | unit tests |
+| N15 | ✅ | **Phonetic keys**: Double Metaphone of `name_core` tokens | | none | new column `name_phonetic` | unit tests |
+| N16 | ✅ | **Transliteration skeleton** for Indian names (`aa→a`, `ee→i`, `sh→s`, `v↔w`, `ph→f`) | | none | new column `name_skeleton` | unit tests |
+| N17 | ✅ | **Mojibake repair** (`Â`, `â` artifacts from bad UTF-8 decoding) | | none | fix in `fold` | unit tests ✅; real circumflex (`CHÂTEAU`) kept |
+| N18 | ✅ | **Token-sorted name** (handles word-order swaps) | | none | new column `name_sorted` | unit tests |
 | N19 | ❌ | libpostal address parsing | | | | dropped: risk under the "external data" rule |
 
 ### 1.3 Data augmentation (§4.4)
