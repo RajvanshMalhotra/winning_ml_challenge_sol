@@ -1,0 +1,22 @@
+fillers: []
+stopwords: [et, de, du, des, la, le, les, d, l]
+addr_fillers: []
+legal_suffixes:
+  sarl: ["sarl", "s a r l"]
+  sas: ["sas", "s a s"]
+  sasu: ["sasu"]
+  sa: ["sa", "s a"]
+  sci: ["sci"]
+  eurl: ["eurl"]
+  snc: ["snc"]
+  selarl: ["selarl"]
+  cie: ["cie", "compagnie"]
+abbreviations:
+  r: rue
+  bd: boulevard
+  bld: boulevard
+  ch: chemin
+  rte: route
+  imp: impasse
+  fbg: faubourg
+states: {}

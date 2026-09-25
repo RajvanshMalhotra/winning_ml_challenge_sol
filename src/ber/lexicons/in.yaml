@@ -1,0 +1,34 @@
+fillers: [shri, sri, smt]
+stopwords: []
+addr_fillers: []
+legal_suffixes:
+  pvt_ltd: ["private limited", "pvt ltd", "pvt limited", "private ltd", "pvt", "private"]
+  opc: ["opc"]
+abbreviations:
+  bangalore: bengaluru
+  bombay: mumbai
+  madras: chennai
+  calcutta: kolkata
+  gurgaon: gurugram
+  poona: pune
+states:
+  India: {ap: andhra pradesh, ar: arunachal pradesh, as: assam, br: bihar, cg: chhattisgarh,
+          ct: chhattisgarh, ga: goa, gj: gujarat, hr: haryana, hp: himachal pradesh, jh: jharkhand,
+          jk: jammu and kashmir, ka: karnataka, kl: kerala, mp: madhya pradesh, mh: maharashtra,
+          mn: manipur, ml: meghalaya, mz: mizoram, nl: nagaland, od: odisha, or: odisha, pb: punjab,
+          rj: rajasthan, sk: sikkim, tn: tamil nadu, ts: telangana, tg: telangana, tr: tripura,
+          up: uttar pradesh, uk: uttarakhand, ut: uttarakhand, wb: west bengal, dl: delhi,
+          ch: chandigarh, py: puducherry}
+native:
+  "ಕರ್ನಾಟಕ": Karnataka
+  "தமிழ்நாடு": Tamil Nadu
+  "महाराष्ट्र": Maharashtra
+  "उत्तर प्रदेश": Uttar Pradesh
+  "दिल्ली": Delhi
+  "राजस्थान": Rajasthan
+  "गुजरात": Gujarat
+  "ગુજરાત": Gujarat
+  "తెలంగాణ": Telangana
+  "ఆంధ్రప్రదేశ్": Andhra Pradesh
+  "পশ্চিমবঙ্গ": West Bengal
+  "കേരളം": Kerala
