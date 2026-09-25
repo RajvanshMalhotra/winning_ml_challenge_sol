@@ -6,3 +6,5 @@ output/
 .DS_Store
 __pycache__/
 artifacts/
+*.egg-info/
+.pytest_cache/
