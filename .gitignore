@@ -1,0 +1,7 @@
+data_download/
+student_resource/
+dataset/
+output/
+*.zip
+.DS_Store
+__pycache__/
