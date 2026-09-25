@@ -19,7 +19,8 @@ blocking:
     n_threads: 110
   state_groups:
     enabled: true
-    min_share: 0.002   # merge states whose cross-state true pairs are >=0.2% of a state's pairs
+    min_share: 0.002   # merge states whose cross-state true pairs are >=0.2% of the larger state's pairs
+    min_pairs: 100     # ...and at least this many pairs (stops tiny states chaining groups together)
   keys:
     n_name_tokens: 2
     n_addr_tokens: 3

@@ -80,8 +80,9 @@ def tfidf_topk(s1: pd.DataFrame, others: pd.DataFrame, cfg_tfidf: dict,
     return pd.concat(parts, ignore_index=True)
 
 
-def learn_state_groups(recs: pd.DataFrame, tp: pd.DataFrame, min_share: float) -> dict[str, dict[str, str]]:
-    """Per country, merge states whose cross-state true pairs are >= min_share of one state's pairs (union-find).
+def learn_state_groups(recs: pd.DataFrame, tp: pd.DataFrame, min_share: float, min_pairs: int = 100
+                       ) -> dict[str, dict[str, str]]:
+    """Per country, merge states whose cross-state true pairs are >= min_share of the larger state's pairs (union-find).
     Returns {country: {state: group_label}}; states never confused keep their own name as the label."""
     st = recs.set_index("entity_id")
     pairs = tp.assign(country=st.country.reindex(tp.s1_id).values,
@@ -100,7 +101,8 @@ def learn_state_groups(recs: pd.DataFrame, tp: pd.DataFrame, min_share: float) -
         per_state = g.groupby("a").size()
         cross = g[g.a != g.b].groupby(["a", "b"]).size()
         for (x, y), n in cross.items():
-            if n >= min_share * min(per_state.get(x, n), per_state.get(y, n)):
+            # relative to the LARGER state: stray pairs from tiny states must not chain everything together
+            if n >= max(min_pairs, min_share * max(per_state.get(x, n), per_state.get(y, n))):
                 parent[find(x)] = find(y)
         members: dict[str, list[str]] = {}
         for x in parent:
@@ -176,7 +178,8 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         groups = None
         if sg_cfg.get("enabled") and "state" in recs:
             if family == "train":
-                groups = learn_state_groups(recs, truth_pairs(read_truth(cfg["paths"]["data_dir"])), sg_cfg["min_share"])
+                groups = learn_state_groups(recs, truth_pairs(read_truth(cfg["paths"]["data_dir"])), sg_cfg["min_share"],
+                                            sg_cfg.get("min_pairs", 100))
                 sg_path.write_text(json.dumps(groups, indent=2, sort_keys=True))
                 print("state groups:", {c: sorted({v for v in m.values() if "+" in v}) for c, m in groups.items()}, flush=True)
             else:

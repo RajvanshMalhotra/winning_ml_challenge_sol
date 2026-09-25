@@ -69,7 +69,7 @@ def test_learn_state_groups_merges_confused_states():
                          "country": ["India"] * 6,
                          "state": ["delhi", "delhi", "kerala", "uttar pradesh", "delhi", "kerala"]})
     tp = pd.DataFrame({"s1_id": ["S1-1", "S1-2", "S1-3"], "cand_id": ["S2-1", "S2-2", "S2-3"]})
-    g = learn_state_groups(recs, tp, min_share=0.1)["India"]
+    g = learn_state_groups(recs, tp, min_share=0.1, min_pairs=1)["India"]
     assert g["delhi"] == g["uttar pradesh"] == "delhi+uttar pradesh" and g["kerala"] == "kerala"
 
 
@@ -81,3 +81,16 @@ def test_grouped_tfidf_restricts_pool_but_keeps_unknown_state():
     got = set(tfidf_topk(s1, oth, cfg, np.array(["texas"]), np.array(["texas", "ohio", ""])).cand_id)
     assert got == {"S2-same", "S2-unk"}
     assert set(tfidf_topk(s1, oth, cfg).cand_id) == {"S2-same", "S2-other", "S2-unk"}  # no groups = whole pool
+
+
+def test_learn_state_groups_does_not_chain_through_tiny_states():
+    from ber.blocking.sparse import learn_state_groups
+    # 100 delhi pairs, 100 kerala pairs, and a tiny state with 1 pair to each: must not merge delhi with kerala
+    ids = [(f"S1-d{i}", "delhi", f"S2-d{i}", "delhi") for i in range(100)] + \
+          [(f"S1-k{i}", "kerala", f"S2-k{i}", "kerala") for i in range(100)] + \
+          [("S1-t1", "sikkim", "S2-t1", "delhi"), ("S1-t2", "sikkim", "S2-t2", "kerala")]
+    recs = pd.DataFrame([(a, "India", sa) for a, sa, _, _ in ids] + [(b, "India", sb) for _, _, b, sb in ids],
+                        columns=["entity_id", "country", "state"])
+    tp = pd.DataFrame([(a, b) for a, _, b, _ in ids], columns=["s1_id", "cand_id"])
+    g = learn_state_groups(recs, tp, min_share=0.002)["India"]
+    assert g["delhi"] != g["kerala"]
