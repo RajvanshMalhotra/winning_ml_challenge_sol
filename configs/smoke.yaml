@@ -1,0 +1,10 @@
+base: configs/base.yaml
+run_name: smoke
+bakeoff:
+  eval_distractors_per_country: 5000
+train:
+  n_entities: 2000
+  n_rounds: 1
+  batch_size: 32
+  cached_mini_batch_size: 16
+  max_steps: 20
