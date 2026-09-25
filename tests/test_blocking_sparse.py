@@ -1,6 +1,9 @@
 import pandas as pd
 
-from ber.blocking.sparse import block_family, key_blocks, tfidf_topk
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+from ber.blocking.sparse import _tfidf_matrices, block_family, key_blocks, tfidf_topk
 from ber.normalize import build_records
 
 CFG = {
@@ -46,3 +49,15 @@ def test_block_family_respects_country_and_fills_defaults():
     assert not ((out.s1_id == "S1-2") & out.cand_id.isin(["S2-1", "S3-1"])).any()
     assert ((out.s1_id == "S1-2") & (out.cand_id == "S3-2")).any()
     assert out.tfidf_rank.min() >= 1
+
+
+def test_parallel_tfidf_matches_sklearn_single_and_multiprocess():
+    rng = np.random.default_rng(0)
+    words = ["galaxy", "solutions", "airport", "road", "kolhapur", "morgan", "dental", "salem", "rue", "lille"]
+    texts = pd.Series([" ".join(rng.choice(words, size=4)) + f" {i % 97}" for i in range(12_000)])  # >10k -> process pool
+    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), min_df=2, max_df=0.5, sublinear_tf=True)
+    x = vec.fit_transform(texts.tolist())
+    ref = (x[:50] @ x[50:].T).toarray()
+    for n_threads in (1, 4):
+        a, b = _tfidf_matrices(texts[:50], texts[50:], {"ngram_range": [3, 5], "min_df": 2, "max_df": 0.5, "n_threads": n_threads})
+        np.testing.assert_allclose((a @ b.T).toarray(), ref, atol=1e-4)

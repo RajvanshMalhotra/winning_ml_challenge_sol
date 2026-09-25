@@ -1,9 +1,13 @@
 import argparse
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
+import scipy.sparse as sp
+from sklearn.feature_extraction.text import HashingVectorizer
+from sklearn.preprocessing import normalize
 from sparse_dot_topn import sp_matmul_topn
 
 from ber.config import log_metrics, run_dir
@@ -15,14 +19,42 @@ from ber.split import splits_path
 EMPTY = pd.DataFrame({"s1_id": pd.Series(dtype=str), "cand_id": pd.Series(dtype=str)})
 
 
+N_HASH_FEATURES = 2 ** 23
+_HASHER: HashingVectorizer | None = None
+
+
+def _hash_counts(texts: list[str]) -> sp.csr_matrix:
+    return _HASHER.transform(texts)
+
+
+def _tfidf_matrices(s1_text: pd.Series, other_text: pd.Series, cfg_tfidf: dict) -> tuple[sp.csr_matrix, sp.csr_matrix]:
+    """Char n-gram TF-IDF (sublinear tf, smooth idf, min_df/max_df, L2) built from hashed counts in parallel.
+    Equivalent to TfidfVectorizer up to hash collisions, but uses every core instead of one."""
+    global _HASHER
+    _HASHER = HashingVectorizer(analyzer="char_wb", ngram_range=tuple(cfg_tfidf["ngram_range"]),
+                                n_features=N_HASH_FEATURES, alternate_sign=False, norm=None, dtype=np.float32)
+    texts = pd.concat([s1_text, other_text]).tolist()
+    n_jobs = cfg_tfidf["n_threads"]
+    if n_jobs > 1 and len(texts) > 10_000:
+        bounds = np.linspace(0, len(texts), n_jobs * 4 + 1, dtype=int)
+        with ProcessPoolExecutor(n_jobs, mp_context=get_context("fork")) as ex:
+            x = sp.vstack(list(ex.map(_hash_counts, [texts[a:b] for a, b in zip(bounds[:-1], bounds[1:])])), format="csr")
+    else:
+        x = _hash_counts(texts)
+    n_docs = x.shape[0]
+    df = np.bincount(x.indices, minlength=x.shape[1])
+    keep = (df >= cfg_tfidf["min_df"]) & (df <= cfg_tfidf.get("max_df", 1.0) * n_docs)
+    idf = (np.log((1 + n_docs) / (1 + df)) + 1).astype(np.float32) * keep
+    x.data = 1 + np.log(x.data)  # sublinear tf, as in TfidfVectorizer(sublinear_tf=True)
+    x = normalize(x @ sp.diags(idf), norm="l2", copy=False).tocsr()
+    x.eliminate_zeros()
+    return x[: len(s1_text)], x[len(s1_text):]
+
+
 def tfidf_topk(s1: pd.DataFrame, others: pd.DataFrame, cfg_tfidf: dict) -> pd.DataFrame:
     if len(s1) == 0 or len(others) == 0:
         return EMPTY.assign(tfidf_sim=pd.Series(dtype="float32"))
-    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=tuple(cfg_tfidf["ngram_range"]),
-                          min_df=cfg_tfidf["min_df"], max_df=cfg_tfidf.get("max_df", 1.0),
-                          sublinear_tf=True, dtype=np.float32)
-    vec.fit(pd.concat([s1.block_text, others.block_text]))
-    a, b = vec.transform(s1.block_text), vec.transform(others.block_text)
+    a, b = _tfidf_matrices(s1.block_text, others.block_text, cfg_tfidf)
     c = sp_matmul_topn(a, b.T.tocsr(), top_n=cfg_tfidf["top_k"], threshold=cfg_tfidf["min_sim"],
                        sort=True, n_threads=cfg_tfidf["n_threads"]).tocoo()
     return pd.DataFrame({"s1_id": s1.entity_id.values[c.row], "cand_id": others.entity_id.values[c.col],
