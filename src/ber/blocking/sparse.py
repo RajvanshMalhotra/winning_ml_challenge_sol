@@ -140,10 +140,47 @@ def key_blocks(recs: pd.DataFrame, cfg_keys: dict) -> pd.DataFrame:
                          "key_hits": pairs.key_hits.values.astype(np.int16)})
 
 
-def block_family(recs: pd.DataFrame, cfg_blocking: dict, state_groups: dict[str, dict[str, str]] | None = None
-                 ) -> pd.DataFrame:
+_KB_SUB: pd.DataFrame | None = None  # set before forking so workers read it without pickling
+_KB_CFG: dict | None = None
+
+
+def _key_blocks_group(idx: np.ndarray) -> pd.DataFrame:
+    return key_blocks(_KB_SUB.iloc[idx], _KB_CFG)
+
+
+def key_blocks_grouped(sub: pd.DataFrame, cfg_keys: dict, s1_group: np.ndarray, oth_group: np.ndarray,
+                       n_jobs: int, log: str = "") -> pd.DataFrame:
+    """key_blocks run separately per state group (S1s of the group + others of the group or of unknown state),
+    in parallel processes. An S1 with unknown state is blocked against the whole country."""
+    global _KB_SUB, _KB_CFG
+    sub = sub.reset_index(drop=True)
+    is_s1 = (sub.source == 1).to_numpy()
+    s1_pos, oth_pos = np.flatnonzero(is_s1), np.flatnonzero(~is_s1)
+    unknown = oth_group == ""
+    tasks = []
+    for g in pd.Series(s1_group).value_counts().index:  # biggest first
+        q = s1_pos[s1_group == g]
+        o = oth_pos if g == "" else oth_pos[(oth_group == g) | unknown]
+        tasks.append((g, np.concatenate([q, o])))
+    _KB_SUB, _KB_CFG = sub, cfg_keys
+    t0, parts = time.perf_counter(), []
+    with ProcessPoolExecutor(max(1, min(n_jobs, len(tasks))), mp_context=get_context("fork")) as ex:
+        for i, ((g, _), df) in enumerate(zip(tasks, ex.map(_key_blocks_group, [t[1] for t in tasks])), 1):
+            parts.append(df)
+            if log:
+                print(f"{log} key blocks {i}/{len(tasks)} '{g or 'unknown'}' done ({time.perf_counter() - t0:.0f}s)", flush=True)
+    return pd.concat(parts, ignore_index=True).drop_duplicates(["s1_id", "cand_id"])
+
+
+def block_family(recs: pd.DataFrame, cfg_blocking: dict, state_groups: dict[str, dict[str, str]] | None = None,
+                 cache_dir: Path | None = None) -> pd.DataFrame:
     parts = []
     for country in recs.loc[recs.source == 1, "country"].unique():  # open set: whatever labels appear
+        cache = cache_dir / f"blocks_{country}.parquet" if cache_dir else None
+        if cache is not None and cache.exists():  # resume: this country already finished in an earlier run
+            print(f"[{country}] loaded from cache", flush=True)
+            parts.append(pd.read_parquet(cache))
+            continue
         sub = recs[recs.country == country]
         s1, others = sub[sub.source == 1], sub[sub.source != 1]
         grp = None
@@ -153,8 +190,16 @@ def block_family(recs: pd.DataFrame, cfg_blocking: dict, state_groups: dict[str,
         t = tfidf_topk(s1, others, cfg_blocking["tfidf"], *(grp or (None, None)), log=f"[{country}]")
         t = t.sort_values(["s1_id", "tfidf_sim"], ascending=[True, False])
         t["tfidf_rank"] = t.groupby("s1_id").cumcount() + 1
-        k = key_blocks(sub, cfg_blocking["keys"])
-        parts.append(t.merge(k, on=["s1_id", "cand_id"], how="outer"))
+        if grp is not None:
+            # key_blocks_grouped needs group labels aligned with sub's order (S1 rows and other rows)
+            k = key_blocks_grouped(pd.concat([s1, others]), cfg_blocking["keys"], grp[0], grp[1],
+                                   cfg_blocking["keys"].get("n_jobs", 16), log=f"[{country}]")
+        else:
+            k = key_blocks(sub, cfg_blocking["keys"])
+        part = t.merge(k, on=["s1_id", "cand_id"], how="outer")
+        if cache is not None:
+            part.to_parquet(cache, index=False)
+        parts.append(part)
     out = pd.concat(parts, ignore_index=True)
     out["tfidf_sim"] = out.tfidf_sim.fillna(0).astype(np.float32)
     out["tfidf_rank"] = out.tfidf_rank.fillna(999).astype(np.int16)
@@ -184,7 +229,9 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
                 print("state groups:", {c: sorted({v for v in m.values() if "+" in v}) for c, m in groups.items()}, flush=True)
             else:
                 groups = json.loads(sg_path.read_text())  # learned on train; unseen countries get no grouping
-        cands = block_family(recs, cfg["blocking"], groups)
+        cache_dir = run_dir(cfg) / f"block_cache_{family}"
+        cache_dir.mkdir(exist_ok=True)
+        cands = block_family(recs, cfg["blocking"], groups, cache_dir)
         cands.to_parquet(cand_sparse_path(cfg, family), index=False)
         s1_ids = recs.entity_id[recs.source == 1].tolist()
         stats = {"n_pairs": len(cands), "per_entity": candidates_per_entity(cands, s1_ids)}

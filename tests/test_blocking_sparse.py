@@ -94,3 +94,34 @@ def test_learn_state_groups_does_not_chain_through_tiny_states():
     tp = pd.DataFrame([(a, b) for a, _, b, _ in ids], columns=["s1_id", "cand_id"])
     g = learn_state_groups(recs, tp, min_share=0.002)["India"]
     assert g["delhi"] != g["kerala"]
+
+
+def test_key_blocks_grouped_matches_ungrouped_when_one_group():
+    from ber.blocking.sparse import key_blocks_grouped
+    rec = _recs()
+    india = rec[rec.country == "India"]
+    s1, oth = india[india.source == 1], india[india.source != 1]
+    sub = pd.concat([s1, oth])
+    got = key_blocks_grouped(sub, CFG["keys"], np.array(["mh"] * len(s1)), np.array(["mh"] * len(oth)), n_jobs=2)
+    ref = key_blocks(sub, CFG["keys"])
+    key = lambda d: set(zip(d.s1_id, d.cand_id))
+    assert key(got) == key(ref)
+
+
+def test_key_blocks_grouped_keeps_unknown_state_records():
+    from ber.blocking.sparse import key_blocks_grouped
+    rec = _recs()
+    india = rec[rec.country == "India"]
+    s1, oth = india[india.source == 1], india[india.source != 1]
+    groups = np.array(["karnataka" if e == "S2-1" else "" if e == "S3-1" else "kerala" for e in oth.entity_id])
+    got = key_blocks_grouped(pd.concat([s1, oth]), CFG["keys"], np.array(["kerala"] * len(s1)), groups, n_jobs=2)
+    cands = set(got.cand_id[got.s1_id == "S1-1"])
+    assert "S3-1" in cands and "S2-1" not in cands  # unknown-state record kept, other-state record excluded
+
+
+def test_block_family_cache_resumes(tmp_path):
+    out1 = block_family(_recs(), CFG, None, tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["blocks_India.parquet", "blocks_US.parquet"]
+    out2 = block_family(_recs(), CFG, None, tmp_path)
+    pd.testing.assert_frame_equal(out1.sort_values(["s1_id", "cand_id"]).reset_index(drop=True),
+                                  out2.sort_values(["s1_id", "cand_id"]).reset_index(drop=True))

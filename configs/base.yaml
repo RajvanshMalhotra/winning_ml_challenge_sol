@@ -26,6 +26,7 @@ blocking:
     n_addr_tokens: 3
     min_token_len: 3
     max_block_size: 100
+    n_jobs: 16          # parallel state-group processes for key blocks
 gpu:
   mem_fraction: 0.4
 bakeoff:
