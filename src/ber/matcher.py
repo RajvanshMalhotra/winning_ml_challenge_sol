@@ -15,7 +15,7 @@ import pyarrow.dataset as ds
 from ber.blocking.sparse import cand_sparse_path
 from ber.config import log_metrics, run_dir
 from ber.evaluate import f05
-from ber.features import REC_COLS, pair_features
+from ber.features import REC_COLS, name_idf, pair_features
 from ber.io import read_truth
 from ber.normalize import records_path
 from ber.split import splits_path
@@ -48,7 +48,8 @@ def build_dataset(cfg: dict, truth: dict[str, set[str]], mcfg: dict) -> pd.DataF
     pairs = pairs.join(ctx, on="cand_id")
     pairs["is_cand_best"] = (pairs.tfidf_sim >= pairs.cand_best_sim - 1e-6).astype(np.int8)
     rec = pd.read_parquet(records_path(cfg, "train"), columns=REC_COLS).set_index("entity_id")
-    feats = pair_features(pairs, rec, workers=cfg["n_jobs"])
+    idf = name_idf(rec) if mcfg.get("idf_features", True) else None
+    feats = pair_features(pairs, rec, workers=cfg["n_jobs"], idf=idf)
     meta = s1.set_index("s1_id")
     feats["s1_id"], feats["cand_id"] = pairs.s1_id.to_numpy(), pairs.cand_id.to_numpy()
     feats["fold"] = meta.fold.reindex(pairs.s1_id).to_numpy()

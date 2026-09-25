@@ -39,3 +39,15 @@ def test_decide_one_owner_and_evaluate():
     s1 = pd.DataFrame({"s1_id": ["S1-a", "S1-b", "S1-c"], "country": ["US", "US", "India"]})
     m = evaluate(pred, truth, s1)
     assert m["singletons"] == 1.0 and np.isclose(m["f05_US"], (1.0 + 1.25 * 0.5 / (0.25 + 0.5)) / 2)
+
+
+def test_idf_and_house_distance_features():
+    from ber.features import name_idf
+    rec = _recs().set_index("entity_id")
+    idf = name_idf(rec.reset_index())
+    pairs = pd.DataFrame({"s1_id": ["S1-1", "S1-1"], "cand_id": ["S2-1", "S3-1"], "tfidf_sim": [0.9, 0.2],
+                          "tfidf_rank": [1, 2], "key_hits": [2, 0], "name_sim": [0.0, 0.0], "name_key": [0, 0]})
+    f = pair_features(pairs, rec, workers=1, idf=idf)
+    assert f.loc[0, "name_idf_jacc"] > f.loc[1, "name_idf_jacc"]
+    assert f.loc[1, "name_rare_mismatch"] > 0
+    assert f.loc[0, "house_num_diff"] == 0 and f.loc[1, "house_num_diff"] == 35   # 47 vs 12
