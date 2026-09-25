@@ -29,6 +29,9 @@ ids = rec.entity_id.to_numpy()
 code = pd.Series(np.arange(len(rec), dtype=np.int32), index=rec.entity_id)
 groups = json.loads((RD / "state_groups.json").read_text())
 rec["grp"] = [groups.get(c, {}).get(s, s) for c, s in zip(rec.country, rec.state)]
+# countries with no state information at all (e.g. France): the whole country is one group
+no_state = rec.groupby("country").grp.apply(lambda g: (g == "").all())
+rec.loc[rec.country.isin(no_state[no_state].index), "grp"] = rec.country
 
 # ---- existing S1 -> candidate edges (plus name-only caches if the re-run has produced them) ----
 cands = pd.read_parquet(cand_sparse_path(cfg, FAMILY), columns=["s1_id", "cand_id", "tfidf_rank", "key_hits"])
