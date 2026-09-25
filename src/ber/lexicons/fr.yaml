@@ -21,3 +21,5 @@ abbreviations:
   fbg: faubourg
   rdc: rez de chaussee
 states: {}
+postal:
+  France: '\b\d{5}\b'

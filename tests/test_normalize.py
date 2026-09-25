@@ -17,7 +17,9 @@ def _raw():
 def test_columns_and_domain_split():
     rec = build_records(_raw(), n_jobs=1)
     assert list(rec.columns) == ["entity_id", "source", "country", "name_raw", "addr_raw", "name_norm", "name_core",
-                                 "legal_suffix", "name_domain", "addr_norm", "house_no", "num_tokens", "block_text"]
+                                 "legal_suffix", "name_domain", "addr_norm", "house_no", "num_tokens", "block_text",
+                                 "name_parts", "name_sorted", "name_phonetic", "name_skeleton", "landmark", "addr_core",
+                                 "postal", "unit"]
     r = rec.set_index("entity_id")
     assert r.loc["S3-1", "name_domain"] == "fafloon pet care"
     assert r.loc["S1-1", "name_domain"] == ""

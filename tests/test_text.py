@@ -34,6 +34,8 @@ def test_address_us():
         "1500 jupiter road po box 8832 allen texas", "1500", "1500 8832")
     assert normalize_address("Texas, # 609, Allen, 1500 Jupiter Road", "US", LEX)[1] == "1500"
     assert normalize_address("01130 REGENCY ROAD, ATL, GA", "US", LEX)[1] == "1130"
+    assert normalize_address("#4332 BASSETT CREEK DRIVE, GOLDEN VALLEY, MN", "US", LEX)[1] == "4332"
+    assert normalize_address("#194, 8TH BLOCK, NEW 54, 4TH FLOOR", "India", LEX)[1] == "194"
     assert normalize_address("1130- Regency Road, Atlanat, Georgia", "US", LEX)[1] == "1130"
 
 
@@ -67,3 +69,50 @@ def test_domain_detection_and_segmentation():
 
 def test_record_text():
     assert record_text("A Co", "1 Main St", "US") == "name: A Co | address: 1 Main St | country: US"
+
+
+# ---- extra fields (tracker N11-N18) ----
+from ber.text import (address_extras, extract_units, fix_mojibake, phonetic_key, skeleton_key,
+                      sorted_name, trade_name_parts)
+
+
+def test_mojibake_removed_but_real_circumflex_kept():
+    assert fix_mojibake("Sector Â 15, BLOCK ÂA") == "Sector 15, BLOCK A"
+    assert fix_mojibake("Bangalore Â") == "Bangalore"
+    assert fix_mojibake("CHÂTEAU ROUGE") == "CHÂTEAU ROUGE"
+
+
+def test_trade_name_parts():
+    assert trade_name_parts("Acme Holdings LLC dba Sunrise Bakery", LEX) == "acme holdings | sunrise bakery"
+    assert trade_name_parts("Grain & Fils (Boulangerie Dupont)", LEX) == "grain fils | boulangerie dupont"
+    assert trade_name_parts("Morgan Dental (PC)", LEX) == ""  # a bracketed legal suffix is not a trade name
+    assert trade_name_parts("Gmax Automobiles (India) Private  Limited", LEX) == ""  # a bracketed country is a qualifier
+    assert trade_name_parts("Galaxy Solutions Pvt Ltd", LEX) == ""
+
+
+def test_units():
+    assert extract_units("1500 jupiter rd, po box 8832, unit 609, allen") == "pobox:8832 unit:609"
+    assert extract_units("4th floor salarapuria, # 12") == "floor:4 unit:12"
+    assert extract_units("1644 crownsville road, fl 0") == "floor:0"
+    assert extract_units("12 main street") == ""
+    assert extract_units("#4332 bassett creek drive") == ""  # leading '#' is the house number
+
+
+def test_address_extras_landmark_postal():
+    landmark, core, postal, unit = address_extras("12 MG Road, Near SBI ATM, Pune, 411001", "India", LEX)
+    assert landmark == "near sbi atm" and "sbi" not in core.split() and postal == "411001" and unit == ""
+    assert address_extras("Opp. City Mall, 4 Park St, Kolkata 700016", "India", LEX)[2] == "700016"
+    assert address_extras("DOOR NO 461 805, A WING, JOGESHWARI WEST", "India", LEX)[2] == ""  # door number, not a PIN
+    assert address_extras("1500 Jupiter Road, Allen, TX, 75002", "US", LEX)[2] == "75002"
+    assert address_extras("12345 Main Street, Austin, TX", "US", LEX)[2] == ""  # 5-digit house number, not a ZIP
+    assert address_extras("6901 110, Round ROCK, # 11108, Texas", "US", LEX)[2] == ""  # '#' marks a unit
+    assert address_extras("20 Rue Parmentier, 59140 Dunkerque", "France", LEX)[2] == "59140"
+    assert address_extras("5 Some Road, 12345", "Atlantis", LEX)[2] == "12345"  # unseen country: generic fallback
+
+
+def test_name_keys():
+    assert sorted_name("nautical center") == "center nautical"
+    assert phonetic_key("galaxy solutions") == phonetic_key("galaxi solutions")
+    assert skeleton_key("shrinivas") == skeleton_key("srinivas")
+    assert skeleton_key("lakshmi") == skeleton_key("laxmi")
+    assert skeleton_key("sharma") == skeleton_key("shurma")

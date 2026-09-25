@@ -47,3 +47,5 @@ states:
        nd: north dakota, oh: ohio, ok: oklahoma, or: oregon, pa: pennsylvania, ri: rhode island,
        sc: south carolina, sd: south dakota, tn: tennessee, tx: texas, ut: utah, vt: vermont,
        va: virginia, wa: washington, wv: west virginia, wi: wisconsin, wy: wyoming, dc: district of columbia}
+postal:
+  US: '(?<![#\d]\s)(?<![#\d])\b\d{5}(?:-\d{4})?\b(?=\s*(?:,|$))'  # not after '#' (unit) or another number

@@ -41,3 +41,5 @@ native:
   "मध्य प्रदेश": Madhya Pradesh
   "ਪੰਜਾਬ": Punjab
   "ଓଡ଼ିଶା": Odisha
+postal:
+  India: '\b[1-9]\d{5}\b'  # no inner space: '461 805' style tokens are door numbers
