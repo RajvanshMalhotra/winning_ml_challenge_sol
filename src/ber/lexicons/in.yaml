@@ -11,6 +11,10 @@ abbreviations:
   calcutta: kolkata
   gurgaon: gurugram
   poona: pune
+  hyd: hyderabad
+  kol: kolkata
+  gf: ground floor
+  ff: first floor
 states:
   India: {ap: andhra pradesh, ar: arunachal pradesh, as: assam, br: bihar, cg: chhattisgarh,
           ct: chhattisgarh, ga: goa, gj: gujarat, hr: haryana, hp: himachal pradesh, jh: jharkhand,
@@ -32,3 +36,8 @@ native:
   "ఆంధ్రప్రదేశ్": Andhra Pradesh
   "পশ্চিমবঙ্গ": West Bengal
   "കേരളം": Kerala
+  "हरियाणा": Haryana
+  "बिहार": Bihar
+  "मध्य प्रदेश": Madhya Pradesh
+  "ਪੰਜਾਬ": Punjab
+  "ଓଡ଼ିଶା": Odisha
