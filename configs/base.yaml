@@ -55,7 +55,7 @@ train:
   lora_learning_rate: 1.0e-4
   warmup_ratio: 0.1
 matcher:
-  n_entities: 200000        # B-split S1s sampled for training/validation (all their candidates)
+  n_entities: 50000         # B-split S1s sampled for training/validation (all their candidates); 200k too slow on the shared node
   rounds: 3000              # early stopping on each fold
   lgbm:
     learning_rate: 0.05

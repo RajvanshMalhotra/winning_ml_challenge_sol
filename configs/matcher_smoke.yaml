@@ -1,0 +1,4 @@
+base: configs/v2.yaml
+matcher:
+  n_entities: 5000
+  rounds: 300
