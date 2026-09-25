@@ -11,6 +11,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "split": ("ber.split", "assign A_train/A_val/B splits and B folds"),
     "block-sparse": ("ber.blocking.sparse", "char TF-IDF top-k + key blocks per country"),
     "bakeoff": ("ber.contrastive.bakeoff", "bi-encoder bake-off: zeroshot | finetune | report"),
+    "matcher": ("ber.matcher", "Model A: LightGBM matcher, out-of-fold on a B-split sample"),
 }
 
 
