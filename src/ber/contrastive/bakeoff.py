@@ -18,7 +18,7 @@ from ber.split import splits_path
 from ber.text import record_text
 
 TIE_EPS = 0.005
-NATIVE_RE = r"[\u0900-\u0DFF]"  # Indic scripts
+NATIVE_RE = "[\u0900-\u0DFF]"  # Indic scripts, as real characters (pyarrow regex has no \\u escapes)
 
 
 def build_eval_set(records: pd.DataFrame, splits: pd.DataFrame, truth: dict, n_distractors: int,
