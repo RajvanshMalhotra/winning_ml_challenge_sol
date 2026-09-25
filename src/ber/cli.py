@@ -12,6 +12,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "block-sparse": ("ber.blocking.sparse", "char TF-IDF top-k + key blocks per country"),
     "bakeoff": ("ber.contrastive.bakeoff", "bi-encoder bake-off: zeroshot | finetune | report"),
     "matcher": ("ber.matcher", "Model A: LightGBM matcher, out-of-fold on a B-split sample"),
+    "predict": ("ber.predict", "score test candidates with Model A and write the submission files"),
 }
 
 
