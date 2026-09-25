@@ -164,6 +164,7 @@ Every blocker reports **pair completeness per country** and **mean/p95 candidate
 | M9 | ⬜ | **Fellegi–Sunter via Splink** (EM on comparison levels) | | B14 | `oof_splink` | OOF F0.5 vs M1 |
 | M10 | ⬜ | **ZeroER** (unsupervised GMM over similarity features), used for France calibration | | F* | match-rate estimate for FR | FR predicted match rate vs M1 |
 | M11 | ⬜ | **Stacker / blender** over the matcher outputs (logistic regression on out-of-fold p's) | | ≥2 of M* | `oof_stack` | OOF F0.5 vs best single model |
+| M12 | ⬜ | **Hard-negative weighting in LightGBM**: extra sample weight on lookalikes at the same address or house number, to push precision. **Only if** the M1 + D2 out-of-fold error analysis shows too many wrong merges | | M1, D2 | `oof_lgbm_hnw` | OOF F0.5 and precision vs M1 |
 
 ---
 

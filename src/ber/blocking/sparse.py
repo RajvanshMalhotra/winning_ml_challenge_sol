@@ -19,7 +19,8 @@ def tfidf_topk(s1: pd.DataFrame, others: pd.DataFrame, cfg_tfidf: dict) -> pd.Da
     if len(s1) == 0 or len(others) == 0:
         return EMPTY.assign(tfidf_sim=pd.Series(dtype="float32"))
     vec = TfidfVectorizer(analyzer="char_wb", ngram_range=tuple(cfg_tfidf["ngram_range"]),
-                          min_df=cfg_tfidf["min_df"], sublinear_tf=True, dtype=np.float32)
+                          min_df=cfg_tfidf["min_df"], max_df=cfg_tfidf.get("max_df", 1.0),
+                          sublinear_tf=True, dtype=np.float32)
     vec.fit(pd.concat([s1.block_text, others.block_text]))
     a, b = vec.transform(s1.block_text), vec.transform(others.block_text)
     c = sp_matmul_topn(a, b.T.tocsr(), top_n=cfg_tfidf["top_k"], threshold=cfg_tfidf["min_sim"],

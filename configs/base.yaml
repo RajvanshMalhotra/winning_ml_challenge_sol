@@ -13,9 +13,10 @@ blocking:
   tfidf:
     ngram_range: [3, 5]
     min_df: 2
+    max_df: 0.05   # drop n-grams in >5% of docs: -0.06pt recall, ~2.5x faster (scripts/bench_tfidf_recall.py)
     top_k: 50
     min_sim: 0.1
-    n_threads: 64
+    n_threads: 110
   keys:
     n_name_tokens: 2
     n_addr_tokens: 3
