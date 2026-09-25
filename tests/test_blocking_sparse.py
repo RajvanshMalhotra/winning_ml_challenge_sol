@@ -125,3 +125,22 @@ def test_block_family_cache_resumes(tmp_path):
     out2 = block_family(_recs(), CFG, None, tmp_path)
     pd.testing.assert_frame_equal(out1.sort_values(["s1_id", "cand_id"]).reset_index(drop=True),
                                   out2.sort_values(["s1_id", "cand_id"]).reset_index(drop=True))
+
+
+def test_name_only_finds_empty_address_matches_and_ignores_others():
+    from ber.blocking.sparse import name_only_candidates
+    raw = pd.DataFrame([
+        ("S1-1", "Eta Consultants Ltd", "Purnea, Vikash Nagar, Purnia East, Bihar", "India", 1),
+        ("S1-2", "Starwise Farms Limited", "Gs Tower, Manesar, Gurgaon, Haryana", "India", 1),
+        ("S2-1", "Eta Consultants", "", "India", 2),                       # empty address -> in pool
+        ("S3-1", "ETA CONSULTANTS PVT", "", "India", 3),                   # empty address -> in pool
+        ("S2-2", "Eta Consultants", "12 Main Road, Patna, Bihar", "India", 2),  # has address -> not in pool
+        ("S3-2", "Sunrise Traders", "", "India", 3),
+    ], columns=["entity_id", "business_name", "business_address", "country", "source"])
+    raw["source"] = raw.source.astype("int8")
+    rec = build_records(raw[["entity_id", "business_name", "business_address", "country", "source"]], n_jobs=1)
+    cfg = {"top_k": 5, "min_sim": 0.3, "min_df": 1, "max_df": 1.0}
+    out = name_only_candidates(rec[rec.source == 1], rec[rec.source != 1], cfg, n_threads=1)
+    got = set(out.cand_id[out.s1_id == "S1-1"])
+    assert {"S2-1", "S3-1"} <= got and "S2-2" not in got
+    assert list(out.columns) == ["s1_id", "cand_id", "name_sim", "name_key"]

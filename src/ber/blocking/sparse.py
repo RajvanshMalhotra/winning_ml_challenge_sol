@@ -141,6 +141,37 @@ def key_blocks(recs: pd.DataFrame, cfg_keys: dict) -> pd.DataFrame:
                          "key_hits": pairs.key_hits.values.astype(np.int16)})
 
 
+def _name_text(df: pd.DataFrame) -> pd.Series:
+    return df.name_domain.where(df.name_domain != "", df.name_core)
+
+
+def name_only_candidates(s1: pd.DataFrame, others: pd.DataFrame, cfg_name: dict, n_threads: int) -> pd.DataFrame:
+    """Candidates for S2/S3 records with an EMPTY address: their only evidence is the name, so compare names alone
+    (the S1's long address would otherwise dilute the TF-IDF similarity) and add a two-rare-name-word key block."""
+    pool = others[others.addr_norm == ""]
+    if len(s1) == 0 or len(pool) == 0:
+        return pd.DataFrame({"s1_id": pd.Series(dtype=str), "cand_id": pd.Series(dtype=str),
+                             "name_sim": pd.Series(dtype="float32"), "name_key": pd.Series(dtype="int8")})
+    q = s1.assign(block_text=_name_text(s1))
+    d = pool.assign(block_text=_name_text(pool))
+    tf = {**cfg_name, "ngram_range": cfg_name.get("ngram_range", [3, 5]), "n_threads": n_threads}
+    t = tfidf_topk(q, d, tf).rename(columns={"tfidf_sim": "name_sim"})
+    # key: the two rarest name tokens (document frequency counted over S1 names + the empty-address pool)
+    both = pd.concat([q[["entity_id", "source", "block_text"]], d[["entity_id", "source", "block_text"]]], ignore_index=True)
+    toks = _rarest(both.block_text.str.split(), 2, cfg_name.get("min_token_len", 3))
+    keyed = toks.groupby("row").tok.agg(lambda x: "|".join(sorted(x))).rename("key").reset_index()
+    keyed = keyed[keyed.key.str.contains("|", regex=False)]
+    keyed = keyed[keyed.groupby("key").row.transform("size") <= cfg_name.get("max_block_size", 100)]
+    is_s1 = both.source.values[keyed.row.values] == 1
+    kp = keyed[is_s1].merge(keyed[~is_s1], on="key", suffixes=("_s1", "_c"))
+    k = pd.DataFrame({"s1_id": both.entity_id.values[kp.row_s1.values], "cand_id": both.entity_id.values[kp.row_c.values],
+                      "name_key": np.int8(1)}).drop_duplicates(["s1_id", "cand_id"])
+    out = t.merge(k, on=["s1_id", "cand_id"], how="outer")
+    out["name_sim"] = out.name_sim.fillna(0).astype(np.float32)
+    out["name_key"] = out.name_key.fillna(0).astype(np.int8)
+    return out
+
+
 _KB_SUB: pd.DataFrame | None = None  # set before forking so workers read it without pickling
 _KB_CFG: dict | None = None
 
@@ -178,12 +209,23 @@ def block_family(recs: pd.DataFrame, cfg_blocking: dict, state_groups: dict[str,
     parts = []
     for country in recs.loc[recs.source == 1, "country"].unique():  # open set: whatever labels appear
         cache = cache_dir / f"blocks_{country}.parquet" if cache_dir else None
-        if cache is not None and cache.exists():  # resume: this country already finished in an earlier run
-            print(f"[{country}] loaded from cache", flush=True)
-            parts.append(pd.read_parquet(cache))
-            continue
+        name_cache = cache_dir / f"nameonly_{country}.parquet" if cache_dir else None
         sub = recs[recs.country == country]
         s1, others = sub[sub.source == 1], sub[sub.source != 1]
+        name_part = None
+        if cfg_blocking.get("name_only", {}).get("enabled"):
+            if name_cache is not None and name_cache.exists():
+                name_part = pd.read_parquet(name_cache)
+            else:
+                name_part = name_only_candidates(s1, others, cfg_blocking["name_only"], cfg_blocking["tfidf"]["n_threads"])
+                if name_cache is not None:
+                    name_part.to_parquet(name_cache, index=False)
+            print(f"[{country}] name-only candidates: {len(name_part):,}", flush=True)
+        if cache is not None and cache.exists():  # resume: this country already finished in an earlier run
+            print(f"[{country}] loaded from cache", flush=True)
+            part = pd.read_parquet(cache)
+            parts.append(part if name_part is None else part.merge(name_part, on=["s1_id", "cand_id"], how="outer"))
+            continue
         grp = None
         if state_groups is not None and "state" in sub:
             m = state_groups.get(country, {})
@@ -200,12 +242,17 @@ def block_family(recs: pd.DataFrame, cfg_blocking: dict, state_groups: dict[str,
         part = t.merge(k, on=["s1_id", "cand_id"], how="outer")
         if cache is not None:
             part.to_parquet(cache, index=False)
-        parts.append(part)
+        parts.append(part if name_part is None else part.merge(name_part, on=["s1_id", "cand_id"], how="outer"))
     out = pd.concat(parts, ignore_index=True)
     out["tfidf_sim"] = out.tfidf_sim.fillna(0).astype(np.float32)
     out["tfidf_rank"] = out.tfidf_rank.fillna(999).astype(np.int16)
     out["key_hits"] = out.key_hits.fillna(0).astype(np.int16)
-    return out[["s1_id", "cand_id", "tfidf_sim", "tfidf_rank", "key_hits"]]
+    cols = ["s1_id", "cand_id", "tfidf_sim", "tfidf_rank", "key_hits"]
+    if "name_sim" in out:
+        out["name_sim"] = out.name_sim.fillna(0).astype(np.float32)
+        out["name_key"] = out.name_key.fillna(0).astype(np.int8)
+        cols += ["name_sim", "name_key"]
+    return out[cols]
 
 
 def cand_sparse_path(cfg: dict, family: str) -> Path:
@@ -242,6 +289,8 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
             stats["pc_all"] = pair_completeness(cands, tp)
             stats["pc_tfidf_only"] = pair_completeness(cands[cands.tfidf_rank < 999], tp)
             stats["pc_keys_only"] = pair_completeness(cands[cands.key_hits > 0], tp)
+            if "name_sim" in cands:
+                stats["pc_name_only"] = pair_completeness(cands[(cands.name_sim > 0) | (cands.name_key > 0)], tp)
             for c, grp in splits.groupby("country"):
                 stats[f"pc_{c}"] = pair_completeness(cands, truth_pairs(truth, grp.s1_id.tolist()))
         print(family, stats, flush=True)

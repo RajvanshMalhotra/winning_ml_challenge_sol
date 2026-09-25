@@ -21,6 +21,14 @@ blocking:
     enabled: true
     min_share: 0.002   # merge states whose cross-state true pairs are >=0.2% of the larger state's pairs
     min_pairs: 100     # ...and at least this many pairs (stops tiny states chaining groups together)
+  name_only:          # extra search for S2/S3 records with an EMPTY address (names only)
+    enabled: true
+    top_k: 20
+    min_sim: 0.3
+    min_df: 2
+    max_df: 0.05
+    min_token_len: 3
+    max_block_size: 100
   keys:
     n_name_tokens: 2
     n_addr_tokens: 3

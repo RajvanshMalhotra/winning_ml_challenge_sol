@@ -7,23 +7,28 @@ import pandas as pd
 
 from ber.blocking.sparse import cand_sparse_path
 from ber.config import load_config
-from ber.evaluate import f05
 from ber.io import read_truth
 from ber.split import splits_path
 
 cfg = load_config(sys.argv[1] if len(sys.argv) > 1 else "configs/v2.yaml")
-cands = pd.read_parquet(cand_sparse_path(cfg, "train"), columns=["s1_id", "cand_id", "tfidf_rank", "key_hits"])
+import pyarrow.parquet as pq
+_cols = pq.read_schema(cand_sparse_path(cfg, "train")).names
+cands = pd.read_parquet(cand_sparse_path(cfg, "train"),
+                        columns=[c for c in ["s1_id", "cand_id", "tfidf_rank", "key_hits", "name_sim", "name_key"] if c in _cols])
 truth = read_truth(cfg["paths"]["data_dir"])
 splits = pd.read_parquet(splits_path(cfg), columns=["s1_id", "country", "n_matches"])
 
-cand_sets = cands.groupby("s1_id").cand_id.agg(set)
-rows = []
-for s1, country, n in zip(splits.s1_id, splits.country, splits.n_matches):
-    t = truth[s1]
-    c = cand_sets.get(s1, set())
-    found = t & c
-    rows.append((s1, country, n, len(t), len(found), len(c), f05(found, t)))  # oracle: predict exactly the found true pairs
-r = pd.DataFrame(rows, columns=["s1_id", "country", "n_matches", "n_true", "n_found", "n_cands", "oracle_f05"])
+# vectorized: per S1 -> number of candidates, number of true matches found among them
+tp = pd.DataFrame([(s, c) for s, m in truth.items() for c in m], columns=["s1_id", "cand_id"])
+hit = tp.merge(cands, on=["s1_id", "cand_id"], how="inner")
+r = splits.set_index("s1_id")
+r["n_true"] = r.n_matches
+r["n_found"] = hit.groupby("s1_id").size().reindex(r.index, fill_value=0)
+r["n_cands"] = cands.groupby("s1_id").size().reindex(r.index, fill_value=0)
+# oracle: a perfect matcher predicts exactly the found true pairs -> precision 1, recall = found/true
+rec = np.where(r.n_true > 0, r.n_found / r.n_true.clip(lower=1), 1.0)
+r["oracle_f05"] = np.where(r.n_true == 0, 1.0, np.where(r.n_found == 0, 0.0, 1.25 * rec / (0.25 + rec)))
+r = r.reset_index()
 
 def summary(g: pd.DataFrame) -> dict:
     return {"entities": len(g),
@@ -34,11 +39,12 @@ def summary(g: pd.DataFrame) -> dict:
             "oracle_macro_f05": g.oracle_f05.mean()}
 
 out = pd.DataFrame({"ALL": summary(r), **{c: summary(g) for c, g in r.groupby("country")}}).T
-tp = cands.merge(pd.DataFrame([(s, c) for s, m in truth.items() for c in m], columns=["s1_id", "cand_id"]))
-extra = {"recall_tfidf_only": (tp.tfidf_rank < 999).sum() / r.n_true.sum(),
-         "recall_keys_only": (tp.key_hits > 0).sum() / r.n_true.sum()}
+extra = {"recall_tfidf_only": (hit.tfidf_rank < 999).sum() / r.n_true.sum(),
+         "recall_keys_only": (hit.key_hits > 0).sum() / r.n_true.sum()}
+if "name_sim" in hit:
+    extra["recall_name_only"] = ((hit.name_sim > 0) | (hit.name_key > 0)).sum() / r.n_true.sum()
 for k in (10, 20, 30, 50):
-    extra[f"recall_tfidf_top{k}"] = (tp.tfidf_rank <= k).sum() / r.n_true.sum()
+    extra[f"recall_tfidf_top{k}"] = (hit.tfidf_rank <= k).sum() / r.n_true.sum()
 pd.set_option("display.width", 200)
 print(out.round(4).to_string())
 print({k: round(v, 4) for k, v in extra.items()})
