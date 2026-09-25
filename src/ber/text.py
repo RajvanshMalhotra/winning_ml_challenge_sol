@@ -184,3 +184,23 @@ def skeleton_key(core: str) -> str:
         t = re.sub(r"(.)\1+", r"\1", t)
         out.append(t[0] + re.sub(r"[aeiou]", "", t[1:]))
     return " ".join(out)
+
+
+_STATE_NAMES: dict[str, frozenset[str]] = {}
+
+
+def extract_state(raw: str, country: str, lex: Lexicon) -> str:
+    """Full state name found as an address component (abbreviations and native script mapped); '' if none
+    or if the country has no state lexicon (e.g. France)."""
+    abbr = lex.states.get(country)
+    if not abbr:
+        return ""
+    names = _STATE_NAMES.setdefault(country, frozenset(abbr.values()))
+    for native, english in lex.native.items():
+        if native in raw:
+            raw = raw.replace(native, english)
+    for comp in fold(raw).split(","):
+        comp = abbr.get(comp.strip(), comp.strip())
+        if comp in names:
+            return comp
+    return ""

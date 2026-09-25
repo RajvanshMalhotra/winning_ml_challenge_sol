@@ -17,6 +17,9 @@ blocking:
     top_k: 50
     min_sim: 0.1
     n_threads: 110
+  state_groups:
+    enabled: true
+    min_share: 0.002   # merge states whose cross-state true pairs are >=0.2% of a state's pairs
   keys:
     n_name_tokens: 2
     n_addr_tokens: 3

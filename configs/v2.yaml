@@ -1,0 +1,6 @@
+base: configs/base.yaml
+run_name: v2   # state-grouped blocking + extra record fields; runs alongside v1 (job 966)
+n_jobs: 64
+blocking:
+  tfidf:
+    n_threads: 64

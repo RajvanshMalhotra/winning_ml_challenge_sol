@@ -1,4 +1,6 @@
 import argparse
+import json
+import time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 from pathlib import Path
@@ -51,14 +53,60 @@ def _tfidf_matrices(s1_text: pd.Series, other_text: pd.Series, cfg_tfidf: dict) 
     return x[: len(s1_text)], x[len(s1_text):]
 
 
-def tfidf_topk(s1: pd.DataFrame, others: pd.DataFrame, cfg_tfidf: dict) -> pd.DataFrame:
+def tfidf_topk(s1: pd.DataFrame, others: pd.DataFrame, cfg_tfidf: dict,
+               s1_group: np.ndarray | None = None, oth_group: np.ndarray | None = None,
+               log: str = "") -> pd.DataFrame:
+    """Top-k char TF-IDF neighbours of each S1 among `others`. With groups, an S1 in group g only searches
+    others in g plus others whose group is unknown (''); an S1 with unknown group searches everything.
+    IDF is always fit on the whole (country) input, so scores are comparable across groups."""
     if len(s1) == 0 or len(others) == 0:
         return EMPTY.assign(tfidf_sim=pd.Series(dtype="float32"))
     a, b = _tfidf_matrices(s1.block_text, others.block_text, cfg_tfidf)
-    c = sp_matmul_topn(a, b.T.tocsr(), top_n=cfg_tfidf["top_k"], threshold=cfg_tfidf["min_sim"],
-                       sort=True, n_threads=cfg_tfidf["n_threads"]).tocoo()
-    return pd.DataFrame({"s1_id": s1.entity_id.values[c.row], "cand_id": others.entity_id.values[c.col],
-                         "tfidf_sim": c.data.astype(np.float32)})
+    s1_group = np.full(len(s1), "", dtype=object) if s1_group is None else np.asarray(s1_group, dtype=object)
+    oth_group = np.full(len(others), "", dtype=object) if oth_group is None else np.asarray(oth_group, dtype=object)
+    unknown = oth_group == ""
+    groups = pd.Series(s1_group).value_counts().index.tolist()  # biggest first
+    parts, t0 = [], time.perf_counter()
+    for i, g in enumerate(groups, 1):
+        qi = np.flatnonzero(s1_group == g)
+        pi = np.arange(len(others)) if g == "" else np.flatnonzero((oth_group == g) | unknown)
+        c = sp_matmul_topn(a[qi], b[pi].T.tocsr(), top_n=cfg_tfidf["top_k"], threshold=cfg_tfidf["min_sim"],
+                           sort=True, n_threads=cfg_tfidf["n_threads"]).tocoo()
+        parts.append(pd.DataFrame({"s1_id": s1.entity_id.values[qi[c.row]], "cand_id": others.entity_id.values[pi[c.col]],
+                                   "tfidf_sim": c.data.astype(np.float32)}))
+        if log:
+            print(f"{log} group {i}/{len(groups)} '{g or 'unknown'}': {len(qi):,} x {len(pi):,} "
+                  f"({time.perf_counter() - t0:.0f}s elapsed)", flush=True)
+    return pd.concat(parts, ignore_index=True)
+
+
+def learn_state_groups(recs: pd.DataFrame, tp: pd.DataFrame, min_share: float) -> dict[str, dict[str, str]]:
+    """Per country, merge states whose cross-state true pairs are >= min_share of one state's pairs (union-find).
+    Returns {country: {state: group_label}}; states never confused keep their own name as the label."""
+    st = recs.set_index("entity_id")
+    pairs = tp.assign(country=st.country.reindex(tp.s1_id).values,
+                      a=st.state.reindex(tp.s1_id).values, b=st.state.reindex(tp.cand_id).values)
+    out: dict[str, dict[str, str]] = {}
+    for country, g in pairs.groupby("country"):
+        g = g[(g.a != "") & (g.b != "")]
+        parent = {x: x for x in set(g.a) | set(g.b)}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        per_state = g.groupby("a").size()
+        cross = g[g.a != g.b].groupby(["a", "b"]).size()
+        for (x, y), n in cross.items():
+            if n >= min_share * min(per_state.get(x, n), per_state.get(y, n)):
+                parent[find(x)] = find(y)
+        members: dict[str, list[str]] = {}
+        for x in parent:
+            members.setdefault(find(x), []).append(x)
+        out[country] = {x: "+".join(sorted(members[find(x)])) for x in parent}
+    return out
 
 
 def _rarest(tokens: pd.Series, n: int, min_len: int) -> pd.DataFrame:
@@ -90,12 +138,17 @@ def key_blocks(recs: pd.DataFrame, cfg_keys: dict) -> pd.DataFrame:
                          "key_hits": pairs.key_hits.values.astype(np.int16)})
 
 
-def block_family(recs: pd.DataFrame, cfg_blocking: dict) -> pd.DataFrame:
+def block_family(recs: pd.DataFrame, cfg_blocking: dict, state_groups: dict[str, dict[str, str]] | None = None
+                 ) -> pd.DataFrame:
     parts = []
     for country in recs.loc[recs.source == 1, "country"].unique():  # open set: whatever labels appear
         sub = recs[recs.country == country]
         s1, others = sub[sub.source == 1], sub[sub.source != 1]
-        t = tfidf_topk(s1, others, cfg_blocking["tfidf"])
+        grp = None
+        if state_groups is not None and "state" in sub:
+            m = state_groups.get(country, {})
+            grp = (s1.state.map(lambda x: m.get(x, x)).to_numpy(), others.state.map(lambda x: m.get(x, x)).to_numpy())
+        t = tfidf_topk(s1, others, cfg_blocking["tfidf"], *(grp or (None, None)), log=f"[{country}]")
         t = t.sort_values(["s1_id", "tfidf_sim"], ascending=[True, False])
         t["tfidf_rank"] = t.groupby("s1_id").cumcount() + 1
         k = key_blocks(sub, cfg_blocking["keys"])
@@ -116,9 +169,19 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run(cfg: dict, args: argparse.Namespace) -> None:
+    sg_cfg = cfg["blocking"].get("state_groups", {})
+    sg_path = run_dir(cfg) / "state_groups.json"
     for family in args.family:
         recs = pd.read_parquet(records_path(cfg, family))
-        cands = block_family(recs, cfg["blocking"])
+        groups = None
+        if sg_cfg.get("enabled") and "state" in recs:
+            if family == "train":
+                groups = learn_state_groups(recs, truth_pairs(read_truth(cfg["paths"]["data_dir"])), sg_cfg["min_share"])
+                sg_path.write_text(json.dumps(groups, indent=2, sort_keys=True))
+                print("state groups:", {c: sorted({v for v in m.values() if "+" in v}) for c, m in groups.items()}, flush=True)
+            else:
+                groups = json.loads(sg_path.read_text())  # learned on train; unseen countries get no grouping
+        cands = block_family(recs, cfg["blocking"], groups)
         cands.to_parquet(cand_sparse_path(cfg, family), index=False)
         s1_ids = recs.entity_id[recs.source == 1].tolist()
         stats = {"n_pairs": len(cands), "per_entity": candidates_per_entity(cands, s1_ids)}

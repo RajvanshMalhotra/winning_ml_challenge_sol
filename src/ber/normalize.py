@@ -9,13 +9,14 @@ import pandas as pd
 from ber.config import run_dir
 from ber.io import read_family
 from ber.lexicons import load_lexicon
-from ber.text import (address_extras, domain_body, is_domain_name, normalize_address, normalize_name, phonetic_key,
-                      segment, skeleton_key, sorted_name, trade_name_parts)
+from ber.text import (address_extras, domain_body, extract_state, is_domain_name, normalize_address, normalize_name,
+                      phonetic_key, segment, skeleton_key, sorted_name, trade_name_parts)
 
 COLUMNS = ["entity_id", "source", "country", "name_raw", "addr_raw", "name_norm", "name_core",
            "legal_suffix", "name_domain", "addr_norm", "house_no", "num_tokens", "block_text",
            # extra fields (tracker N11-N18); appended so existing consumers are unaffected
-           "name_parts", "name_sorted", "name_phonetic", "name_skeleton", "landmark", "addr_core", "postal", "unit"]
+           "name_parts", "name_sorted", "name_phonetic", "name_skeleton", "landmark", "addr_core", "postal", "unit",
+           "state"]
 
 
 def _normalize_chunk(raw: pd.DataFrame) -> pd.DataFrame:
@@ -38,6 +39,7 @@ def _normalize_chunk(raw: pd.DataFrame) -> pd.DataFrame:
     out["name_skeleton"] = [skeleton_key(c) for c in out["name_core"]]
     extras = [address_extras(a, c, lex) for a, c in zip(raw["business_address"], raw["country"])]
     out["landmark"], out["addr_core"], out["postal"], out["unit"] = map(list, zip(*extras)) if extras else ([], [], [], [])
+    out["state"] = [extract_state(a, c, lex) for a, c in zip(raw["business_address"], raw["country"])]
     return out
 
 

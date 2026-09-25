@@ -116,3 +116,13 @@ def test_name_keys():
     assert skeleton_key("shrinivas") == skeleton_key("srinivas")
     assert skeleton_key("lakshmi") == skeleton_key("laxmi")
     assert skeleton_key("sharma") == skeleton_key("shurma")
+
+
+def test_extract_state():
+    from ber.text import extract_state
+    assert extract_state("1500 Jupiter Rd, Allen, TX", "US", LEX) == "texas"
+    assert extract_state("Texas, # 609, Allen", "US", LEX) == "texas"
+    assert extract_state("Door No 236, Bengaluru, ಕರ್ನಾಟಕ", "India", LEX) == "karnataka"
+    assert extract_state("NULL, MH, 47/1 Airport Road", "India", LEX) == "maharashtra"
+    assert extract_state("12 Main Street, Springfield", "US", LEX) == ""
+    assert extract_state("20 Rue Parmentier, Dunkerque, Nord", "France", LEX) == ""  # no state lexicon

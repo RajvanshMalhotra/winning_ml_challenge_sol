@@ -61,3 +61,23 @@ def test_parallel_tfidf_matches_sklearn_single_and_multiprocess():
     for n_threads in (1, 4):
         a, b = _tfidf_matrices(texts[:50], texts[50:], {"ngram_range": [3, 5], "min_df": 2, "max_df": 0.5, "n_threads": n_threads})
         np.testing.assert_allclose((a @ b.T).toarray(), ref, atol=1e-4)
+
+
+def test_learn_state_groups_merges_confused_states():
+    from ber.blocking.sparse import learn_state_groups
+    recs = pd.DataFrame({"entity_id": ["S1-1", "S1-2", "S1-3", "S2-1", "S2-2", "S2-3"],
+                         "country": ["India"] * 6,
+                         "state": ["delhi", "delhi", "kerala", "uttar pradesh", "delhi", "kerala"]})
+    tp = pd.DataFrame({"s1_id": ["S1-1", "S1-2", "S1-3"], "cand_id": ["S2-1", "S2-2", "S2-3"]})
+    g = learn_state_groups(recs, tp, min_share=0.1)["India"]
+    assert g["delhi"] == g["uttar pradesh"] == "delhi+uttar pradesh" and g["kerala"] == "kerala"
+
+
+def test_grouped_tfidf_restricts_pool_but_keeps_unknown_state():
+    s1 = pd.DataFrame({"entity_id": ["S1-a"], "block_text": ["galaxy solutions airport road"]})
+    oth = pd.DataFrame({"entity_id": ["S2-same", "S2-other", "S2-unk"],
+                        "block_text": ["galaxy solutions airport road"] * 3})
+    cfg = CFG["tfidf"]
+    got = set(tfidf_topk(s1, oth, cfg, np.array(["texas"]), np.array(["texas", "ohio", ""])).cand_id)
+    assert got == {"S2-same", "S2-unk"}
+    assert set(tfidf_topk(s1, oth, cfg).cand_id) == {"S2-same", "S2-other", "S2-unk"}  # no groups = whole pool
