@@ -110,6 +110,7 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         print(f"  scored S1 {i + len(s1):,}/{len(s1_all):,} ({len(pairs):,} pairs, {time.perf_counter() - t0:.0f}s)", flush=True)
     scored = pd.concat(scored, ignore_index=True)
     scored.to_parquet(rd / "test_scores.parquet", index=False)
+    scored.to_parquet(rd / f"test_scores_{args.models}.parquet", index=False)  # per-model copy (v2 / v3 side by side)
     pred = decide(scored, tau)
     cands = scored.groupby("s1_id").cand_id.agg(set).to_dict()
     out = Path(args.out)

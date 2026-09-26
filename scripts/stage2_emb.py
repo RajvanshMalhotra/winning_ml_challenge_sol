@@ -4,6 +4,7 @@ usage: stage2_emb.py train | submit
   train : build stacked OOF scores, add embedding-support features, OOF LightGBM -> F0.5 vs the stack
   submit: same on test -> artifacts/submissions/v4 + official validator"""
 import json
+import os
 import subprocess
 import sys
 import time
@@ -21,8 +22,11 @@ from ber.predict import write_submission
 
 cfg = load_config("configs/v2.yaml")
 RD = run_dir(cfg)
-RR = RD / "reranker"
-OUT = RD / "stage2_emb"
+RR = RD / os.environ.get("RR_DIR", "reranker")
+OUT = RD / os.environ.get("S2_DIR", "stage2_emb")
+A_DIR = os.environ.get("A_DIR", "matcher_emb")
+TEST_SCORES = os.environ.get("TEST_SCORES", "test_scores.parquet")
+SUB = os.environ.get("SUB", "v4")
 OUT.mkdir(exist_ok=True)
 LO, HI, CONF, CHUNK = 0.01, 0.99, 0.5, 2000
 T0 = time.perf_counter()
@@ -38,10 +42,10 @@ def stacked(fam: str) -> pd.DataFrame:
     ns = {}
     exec(open("scripts/reranker.py").read().split('{"train": train')[0], ns)
     if fam == "train":
-        base = pd.read_parquet(RD / "matcher_emb" / "oof.parquet")
+        base = pd.read_parquet(RD / A_DIR / "oof.parquet")
         band = pd.read_parquet(RR / "oof_band_scores.parquet")[["s1_id", "cand_id", "rr"]]
     else:
-        base = pd.read_parquet(RD / "test_scores.parquet")
+        base = pd.read_parquet(RD / TEST_SCORES)
         band = pd.read_parquet(RR / "test_band_scores.parquet")[["s1_id", "cand_id", "rr"]]
     f = ns["stack_features"](base.merge(band, on=["s1_id", "cand_id"], how="left"))
     models = [lgb.Booster(model_file=str(p)) for p in sorted(RR.glob("stack_fold*.txt"))]
@@ -120,8 +124,9 @@ def train() -> None:
           f"A + reranker: τ={base.tau:.2f} → **{base.macro_f05:.4f}**", "",
           f"**A + reranker + B2: τ={best.tau:.2f} → {best.macro_f05:.4f}** (singletons {best.singletons:.4f}, "
           + ", ".join(f"{k[4:]} {v:.4f}" for k, v in best.items() if str(k).startswith("f05_")) + ")", "", md_table(grid)]
-    Path("docs/results/model_b2.md").write_text("\n".join(md) + "\n")
+    Path(f"docs/results/model_b2_{A_DIR}.md").write_text("\n".join(md) + "\n")
     print("\n".join(md[:5]), flush=True)
+    print(f"B2: {best.macro_f05:.4f} vs A+reranker {base.macro_f05:.4f}", flush=True)
 
 
 def submit() -> None:
@@ -139,7 +144,7 @@ def submit() -> None:
     pred = decide(sc, tau)
     rec = pd.read_parquet(records_path(cfg, "test"), columns=["entity_id", "source", "country"])
     s1_all = rec.entity_id[rec.source == 1].tolist()
-    out = Path("artifacts/submissions/v4")
+    out = Path(f"artifacts/submissions/{SUB}")
     write_submission(s1_all, pred, sc.groupby("s1_id").cand_id.agg(set).to_dict(), out)
     n = pd.Series({s: len(v) for s, v in pred.items()}).reindex(s1_all, fill_value=0)
     ctry = rec.set_index("entity_id").country.reindex(n.index).to_numpy()

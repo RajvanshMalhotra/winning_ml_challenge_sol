@@ -29,6 +29,9 @@ BASE = "BAAI/bge-reranker-v2-m3"
 cfg = load_config("configs/v2.yaml")
 RD = run_dir(cfg)
 OUT = RD / os.environ.get("RR_DIR", "reranker")
+A_DIR = os.environ.get("A_DIR", "matcher_emb")              # Model A folder whose OOF / scores are re-scored
+TEST_SCORES = os.environ.get("TEST_SCORES", "test_scores.parquet")
+SUB = os.environ.get("SUB", "v3")
 OUT.mkdir(exist_ok=True)
 T0 = time.perf_counter()
 log = lambda *a: print(f"[{time.perf_counter() - T0:6.0f}s]", *a, flush=True)
@@ -56,6 +59,9 @@ def score_pairs(fam: str, pairs: pd.DataFrame) -> np.ndarray:
 
 
 def train() -> None:
+    if (OUT / "model").exists() and os.environ.get("RR_RETRAIN") != "1":
+        log(f"reranker model already in {OUT}/model - reusing (set RR_RETRAIN=1 to retrain)")
+        return
     import torch
     from datasets import Dataset
     from sentence_transformers.cross_encoder import CrossEncoderTrainer, CrossEncoderTrainingArguments
@@ -87,7 +93,7 @@ def train() -> None:
 
 
 def score_oof() -> None:
-    o = pd.read_parquet(RD / "matcher_emb" / "oof.parquet")
+    o = pd.read_parquet(RD / A_DIR / "oof.parquet")
     band = o[(o.p >= LO) & (o.p <= HI)].reset_index(drop=True)
     band["rr"] = score_pairs("train", band)
     band.to_parquet(OUT / "oof_band_scores.parquet", index=False)
@@ -111,7 +117,7 @@ def stack_features(s: pd.DataFrame) -> pd.DataFrame:
 
 
 def stack() -> None:
-    o = pd.read_parquet(RD / "matcher_emb" / "oof.parquet")
+    o = pd.read_parquet(RD / A_DIR / "oof.parquet")
     b = pd.read_parquet(OUT / "oof_band_scores.parquet")[["s1_id", "cand_id", "rr"]]
     f = stack_features(o.merge(b, on=["s1_id", "cand_id"], how="left"))
     sp = pd.read_parquet(RD / "splits.parquet", columns=["s1_id", "country", "fold"]).set_index("s1_id")
@@ -147,7 +153,7 @@ def stack() -> None:
 
 
 def score_test() -> None:
-    t = pd.read_parquet(RD / "test_scores.parquet")
+    t = pd.read_parquet(RD / TEST_SCORES)
     band = t[(t.p >= LO) & (t.p <= HI)].reset_index(drop=True)
     log(f"test band pairs: {len(band):,}")
     band["rr"] = score_pairs("test", band)
@@ -156,7 +162,7 @@ def score_test() -> None:
 
 
 def submit() -> None:
-    t = pd.read_parquet(RD / "test_scores.parquet")
+    t = pd.read_parquet(RD / TEST_SCORES)
     b = pd.read_parquet(OUT / "test_band_scores.parquet")
     f = stack_features(t.merge(b, on=["s1_id", "cand_id"], how="left"))
     models = [lgb.Booster(model_file=str(p)) for p in sorted(OUT.glob("stack_fold*.txt"))]
@@ -166,7 +172,7 @@ def submit() -> None:
     pred = decide(sc, tau)
     rec = pd.read_parquet(records_path(cfg, "test"), columns=["entity_id", "source", "country"])
     s1_all = rec.entity_id[rec.source == 1].tolist()
-    out = Path("artifacts/submissions/v3")
+    out = Path(f"artifacts/submissions/{SUB}")
     write_submission(s1_all, pred, t.groupby("s1_id").cand_id.agg(set).to_dict(), out)
     n = pd.Series({s: len(v) for s, v in pred.items()}).reindex(s1_all, fill_value=0)
     ctry = rec.set_index("entity_id").country.reindex(n.index).to_numpy()
