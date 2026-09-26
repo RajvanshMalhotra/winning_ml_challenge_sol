@@ -35,3 +35,16 @@
 - Letter-matching methods need `Sautéed` = `Sauteed` (the data's noise even *adds* fake accents: `Bérto`, `Córnerstone`).
 - Multilingual models understand accents natively, so stripping them would throw information away.
 - Small known flaws: possessive `'s` becomes a stray token (`Simmons's` → `simmons s`); `St.` always → `street` (sometimes it means *Saint*). Both are minor, because both sides of a pair are cleaned the same way.
+
+## 3. An empty address is almost a guarantee of a match (train)
+
+Only S2/S3 ever have empty addresses (~3%; S1 is always complete, in train **and** test, France included).
+
+| S2/S3 record | Belongs to some S1 |
+|---|---|
+| **no address** | **97.7%** |
+| has an address | 73.2% |
+
+- The empty-address records look like deliberately degraded **copies** of an S1 business: name kept (62.7% identical core name, never zero shared words), address dropped. 97.9% of their S1s also have another match *with* an address.
+- Yet they are v5's biggest error: **76% of the true matches v5 still misses** have an empty address on one side. The reranker usually says yes (median 0.84), but the stacker distrusts these pairs because half of the wrong accepts are also empty-address pairs.
+- So the question for these records is not *"is it a match?"* (almost always yes) but *"**which** S1 does it belong to?"*: an assignment problem. Candidate-side features (how this S1 ranks among all S1s competing for the record, and the gap to the runner-up) answer that directly.
