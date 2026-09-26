@@ -20,6 +20,34 @@ from ber.matcher import add_extra_channels, candidate_context, decide
 from ber.normalize import records_path
 
 
+def record_embeddings(cfg: dict, family: str, model_key: str, model_path: str) -> tuple[np.ndarray, pd.Series]:
+    """Embed every record of `family` once with the fine-tuned bi-encoder (S1 with the query prefix, S2/S3 with the
+    doc prefix, same text as training). Cached as .npy (float16, row = position in records_<family>.parquet)."""
+    from ber.contrastive.encoders import ENCODERS, encode, load_encoder
+    from ber.text import record_text
+    recs = pd.read_parquet(records_path(cfg, family), columns=["entity_id", "source", "name_raw", "addr_raw", "country"])
+    code = pd.Series(np.arange(len(recs)), index=recs.entity_id)
+    path = run_dir(cfg) / f"emb_{family}_{model_key}_{Path(model_path).parent.name}.npy"
+    if path.exists():
+        return np.load(path, mmap_mode="r"), code
+    spec = ENCODERS[model_key]
+    model = load_encoder(spec, path=model_path, mem_fraction=cfg["gpu"]["mem_fraction"])
+    bs, emb = cfg["bakeoff"]["encode_batch_size"], None
+    for is_s1, prefix in ((True, spec.query_prefix), (False, spec.doc_prefix)):
+        idx = np.flatnonzero((recs.source == 1).to_numpy() == is_s1)
+        for a in range(0, len(idx), 500_000):
+            part = idx[a:a + 500_000]
+            e = encode(model, [record_text(n, ad, c) for n, ad, c in zip(recs.name_raw.to_numpy()[part],
+                                                                          recs.addr_raw.to_numpy()[part],
+                                                                          recs.country.to_numpy()[part])], prefix, bs)
+            if emb is None:
+                emb = np.zeros((len(recs), e.shape[1]), dtype=np.float16)
+            emb[part] = e
+            print(f"  embedded {'S1' if is_s1 else 'S2/S3'} {a + len(part):,}/{len(idx):,}", flush=True)
+    np.save(path, emb)
+    return emb, code
+
+
 def write_submission(s1_ids: list[str], pred: dict[str, set[str]], cands: dict[str, set[str]], out_dir: Path) -> None:
     """One row per test S1; comma-joined ids, empty when none; matches are a subset of candidates."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -35,6 +63,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--models", default="matcher", help="run_dir sub-folder holding lgbm_fold*.txt and report")
     parser.add_argument("--tau", type=float, default=None, help="cut-off; default = best tau from the OOF metrics")
     parser.add_argument("--chunk", type=int, default=200_000, help="S1s per scoring chunk")
+    parser.add_argument("--out", default="output", help="folder for the two submission TSVs")
 
 
 def run(cfg: dict, args: argparse.Namespace) -> None:
@@ -50,8 +79,9 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
     missing = [str(need[c]) for c in channels if c in need and not need[c].exists()]
     if missing:
         raise SystemExit(f"test-side channel files missing (the models were trained with {channels}): {missing}")
+    emb = None
     if best.get("embed_model_path"):
-        raise SystemExit("models use the bi-encoder feature; test embeddings are not wired into predict yet")
+        emb, emb_code = record_embeddings(cfg, "test", best.get("embed_model_key", "bgem3"), best["embed_model_path"])
     print(f"{len(models)} fold models, {len(feat_names)} features, tau={tau}, channels={channels}", flush=True)
     rec = pd.read_parquet(records_path(cfg, "test"), columns=REC_COLS).set_index("entity_id")
     idf = name_idf(rec.reset_index()) if "name_idf_jacc" in feat_names else None
@@ -65,6 +95,11 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         pairs = pairs.join(ctx, on="cand_id")
         pairs["is_cand_best"] = (pairs.tfidf_sim >= pairs.cand_best_sim - 1e-6).astype(np.int8)
         f = pair_features(pairs, rec, workers=cfg["n_jobs"], idf=idf)
+        if emb is not None:
+            q = np.asarray(emb[emb_code.reindex(pairs.s1_id).to_numpy()], dtype=np.float32)
+            d = np.asarray(emb[emb_code.reindex(pairs.cand_id).to_numpy()], dtype=np.float32)
+            f["emb_cos"] = np.einsum("ij,ij->i", q, d).astype(np.float32)
+            f["emb_cos_gap"] = (f.groupby(pairs.s1_id.to_numpy()).emb_cos.transform("max") - f.emb_cos).astype(np.float32)
         for c in feat_names:  # a channel absent on test becomes 0 / NaN like in training fill
             if c not in f:
                 f[c] = np.nan
@@ -76,7 +111,7 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
     scored.to_parquet(rd / "test_scores.parquet", index=False)
     pred = decide(scored, tau)
     cands = scored.groupby("s1_id").cand_id.agg(set).to_dict()
-    out = Path("output")
+    out = Path(args.out)
     write_submission(s1_all, pred, cands, out)
     n_pred = pd.Series({s: len(v) for s, v in pred.items()}).reindex(s1_all, fill_value=0)
     stats = {"tau": tau, "test_s1": len(s1_all), "pairs_scored": len(scored), "pred_pairs": int(n_pred.sum()),

@@ -181,7 +181,8 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         m.save_model(str(out_dir / f"lgbm_fold{i}.txt"))
     (out_dir / "best.json").write_text(json.dumps({"tau": float(best.tau), "macro_f05": float(best.macro_f05),
                                                    "extra_channels": mcfg.get("extra_channels", []),
-                                                   "embed_model_path": mcfg.get("embed_model_path")}, indent=2))
+                                                   "embed_model_path": mcfg.get("embed_model_path"),
+                                                   "embed_model_key": mcfg.get("embed_model_key", "bgem3")}, indent=2))
     metrics = {"n_pairs": len(df), "n_s1": len(s1), "best": best.to_dict(), "without_one_owner": no_owner,
                "oof_auc": float(roc_auc_score(df[LABEL].to_numpy(), oof))}
     log_metrics(cfg, "matcher", metrics)
