@@ -1,0 +1,6 @@
+base: configs/matcher_v3.yaml
+matcher:
+  n_entities: 5000
+  rounds: 300
+  out_name: matcher_v3_smoke
+  report_name: model_a_v3_smoke

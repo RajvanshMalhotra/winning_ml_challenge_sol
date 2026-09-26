@@ -75,7 +75,8 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
     best = json.loads((mdir / "best.json").read_text())
     tau = args.tau if args.tau is not None else best["tau"]
     channels = best.get("extra_channels", [])
-    need = {"hardname": rd / "cand_hardname_test.parquet", "graph": rd / "kg_recrec_edges_test.parquet"}
+    need = {"hardname": rd / "cand_hardname_test.parquet", "graph": rd / "kg_recrec_edges_test.parquet",
+            "dense": rd / "cand_dense_test.parquet"}
     missing = [str(need[c]) for c in channels if c in need and not need[c].exists()]
     if missing:
         raise SystemExit(f"test-side channel files missing (the models were trained with {channels}): {missing}")

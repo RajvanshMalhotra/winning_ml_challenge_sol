@@ -44,6 +44,17 @@ def embedding_cosine(pairs: pd.DataFrame, rec: pd.DataFrame, model_key: str, mod
 
     from ber.contrastive.encoders import ENCODERS, encode, load_encoder
     from ber.text import record_text
+    cache = run_dir(cfg) / f"emb_train_{model_key}_{Path(model_path).parent.name}.npy"
+    if cache.exists():  # every train record embedded once already (scripts/embed_family.py)
+        ids = pd.read_parquet(records_path(cfg, "train"), columns=["entity_id"]).entity_id
+        code = pd.Series(np.arange(len(ids)), index=ids.to_numpy())
+        emb = np.load(cache, mmap_mode="r")
+        out = np.empty(len(pairs), np.float32)
+        a, b = code.reindex(pairs.s1_id).to_numpy(), code.reindex(pairs.cand_id).to_numpy()
+        for i in range(0, len(pairs), 1_000_000):
+            out[i:i + 1_000_000] = np.einsum("ij,ij->i", np.asarray(emb[a[i:i + 1_000_000]], dtype=np.float32),
+                                             np.asarray(emb[b[i:i + 1_000_000]], dtype=np.float32))
+        return out
     spec = ENCODERS[model_key]
     model = load_encoder(spec, path=model_path, mem_fraction=cfg["gpu"]["mem_fraction"])
     s1_ids, c_ids = pd.unique(pairs.s1_id), pd.unique(pairs.cand_id)
@@ -78,10 +89,14 @@ def add_extra_channels(cfg: dict, family: str, pairs: pd.DataFrame, s1_set: set[
         g = pd.DataFrame({"s1_id": g.s1_id.to_numpy(), "cand_id": ids[g.b.to_numpy()]})
         g = g.groupby(["s1_id", "cand_id"]).size().rename("graph_paths").reset_index()
         extra.append(g.assign(from_graph=np.int8(1)))
+    if "dense" in channels and (rd / f"cand_dense_{family}.parquet").exists():
+        dn = ds.dataset(rd / f"cand_dense_{family}.parquet").to_table(filter=pc.field("s1_id").isin(list(s1_set))).to_pandas()
+        extra.append(dn.assign(from_dense=np.int8(1)))
     for x in extra:
         pairs = pairs.merge(x, on=["s1_id", "cand_id"], how="outer")
     for c, fill in [("tfidf_sim", 0.0), ("tfidf_rank", 999), ("key_hits", 0), ("name_sim", 0.0), ("name_key", 0),
-                    ("hard_emb_sim", 0.0), ("hard_emb_rank", 99), ("from_hardname", 0), ("graph_paths", 0), ("from_graph", 0)]:
+                    ("hard_emb_sim", 0.0), ("hard_emb_rank", 99), ("from_hardname", 0), ("graph_paths", 0), ("from_graph", 0),
+                    ("dense_sim", 0.0), ("dense_rank", 99), ("from_dense", 0)]:
         if c in pairs:
             pairs[c] = pairs[c].fillna(fill)
     return pairs

@@ -1,0 +1,8 @@
+base: configs/v2.yaml
+matcher:
+  n_entities: 150000
+  out_name: matcher_v3
+  report_name: model_a_v3
+  extra_channels: [hardname, graph, dense]
+  embed_model_key: bgem3
+  embed_model_path: artifacts/v2/bakeoff/bgem3__finetune/model
