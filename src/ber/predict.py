@@ -1,4 +1,4 @@
-"""Score the TEST candidates with the Model A fold models and write the submission files.
+"""Score the TEST candidates with the Model A fold models and write the submission files (--family train: scores only).
 Candidates = cand_sparse_test (+ the same extra channels as training). Probability = mean of the fold models.
 Decision = cut-off tau (from the OOF report) + one-owner rule. Output: output/matching_results.tsv and
 output/candidate_pairs.tsv, then the official validator.   CLI: python -m ber --config configs/v2.yaml predict"""
@@ -64,44 +64,46 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tau", type=float, default=None, help="cut-off; default = best tau from the OOF metrics")
     parser.add_argument("--chunk", type=int, default=200_000, help="S1s per scoring chunk")
     parser.add_argument("--out", default="output", help="folder for the two submission TSVs")
+    parser.add_argument("--family", default="test", help="test (scores + submission) or train (scores only, for stacker features)")
 
 
 def run(cfg: dict, args: argparse.Namespace) -> None:
     t0 = time.perf_counter()
     rd = run_dir(cfg)
+    fam = args.family
     mdir = rd / args.models
     models = [lgb.Booster(model_file=str(p)) for p in sorted(mdir.glob("lgbm_fold*.txt"))]
     feat_names = models[0].feature_name()
     best = json.loads((mdir / "best.json").read_text())
     tau = args.tau if args.tau is not None else best["tau"]
     channels = best.get("extra_channels", [])
-    need = {"hardname": rd / "cand_hardname_test.parquet", "graph": rd / "kg_recrec_edges_test.parquet",
-            "dense": rd / "cand_dense_test.parquet"}
+    need = {"hardname": rd / f"cand_hardname_{fam}.parquet", "graph": rd / f"kg_recrec_edges_{fam}.parquet",
+            "dense": rd / f"cand_dense_{fam}.parquet"}
     missing = [str(need[c]) for c in channels if c in need and not need[c].exists()]
     if missing:
-        raise SystemExit(f"test-side channel files missing (the models were trained with {channels}): {missing}")
+        raise SystemExit(f"{fam}-side channel files missing (the models were trained with {channels}): {missing}")
     emb = None
     if best.get("embed_model_path"):
-        emb, emb_code = record_embeddings(cfg, "test", best.get("embed_model_key", "bgem3"), best["embed_model_path"])
+        emb, emb_code = record_embeddings(cfg, fam, best.get("embed_model_key", "bgem3"), best["embed_model_path"])
     print(f"{len(models)} fold models, {len(feat_names)} features, tau={tau}, channels={channels}", flush=True)
-    rec = pd.read_parquet(records_path(cfg, "test"), columns=REC_COLS).set_index("entity_id")
+    rec = pd.read_parquet(records_path(cfg, fam), columns=REC_COLS).set_index("entity_id")
     idf = name_idf(rec.reset_index()) if "name_idf_jacc" in feat_names else None
-    ctx = candidate_context(cand_sparse_path(cfg, "test"))
+    ctx = candidate_context(cand_sparse_path(cfg, fam))
     s1_all = rec.index[rec.source == 1].tolist()
     scored = []
     for i in range(0, len(s1_all), args.chunk):
         s1 = s1_all[i:i + args.chunk]
-        pairs = ds.dataset(cand_sparse_path(cfg, "test")).to_table(filter=ds.field("s1_id").isin(s1)).to_pandas()
-        pairs = add_extra_channels(cfg, "test", pairs, set(s1), channels)
+        pairs = ds.dataset(cand_sparse_path(cfg, fam)).to_table(filter=ds.field("s1_id").isin(s1)).to_pandas()
+        pairs = add_extra_channels(cfg, fam, pairs, set(s1), channels)
         pairs = pairs.join(ctx, on="cand_id")
         pairs["is_cand_best"] = (pairs.tfidf_sim >= pairs.cand_best_sim - 1e-6).astype(np.int8)
         f = pair_features(pairs, rec, workers=cfg["n_jobs"], idf=idf)
         if emb is not None:  # in 1M-pair slices: gathering all vectors of a chunk at once needs ~200 GB
             a, b = emb_code.reindex(pairs.s1_id).to_numpy(), emb_code.reindex(pairs.cand_id).to_numpy()
             cos = np.empty(len(pairs), np.float32)
-            for i in range(0, len(pairs), 1_000_000):
-                cos[i:i + 1_000_000] = np.einsum("ij,ij->i", np.asarray(emb[a[i:i + 1_000_000]], dtype=np.float32),
-                                                 np.asarray(emb[b[i:i + 1_000_000]], dtype=np.float32))
+            for j in range(0, len(pairs), 1_000_000):
+                cos[j:j + 1_000_000] = np.einsum("ij,ij->i", np.asarray(emb[a[j:j + 1_000_000]], dtype=np.float32),
+                                                 np.asarray(emb[b[j:j + 1_000_000]], dtype=np.float32))
             f["emb_cos"] = cos
             f["emb_cos_gap"] = (f.groupby(pairs.s1_id.to_numpy()).emb_cos.transform("max") - f.emb_cos).astype(np.float32)
         for c in feat_names:  # a channel absent on test becomes 0 / NaN like in training fill
@@ -112,6 +114,10 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         scored.append(pd.DataFrame({"s1_id": pairs.s1_id.to_numpy(), "cand_id": pairs.cand_id.to_numpy(), "p": p}))
         print(f"  scored S1 {i + len(s1):,}/{len(s1_all):,} ({len(pairs):,} pairs, {time.perf_counter() - t0:.0f}s)", flush=True)
     scored = pd.concat(scored, ignore_index=True)
+    if fam != "test":  # train: scores only (stacker competition features), no submission
+        scored.to_parquet(rd / f"{fam}_scores_{args.models}.parquet", index=False)
+        print(f"wrote {fam}_scores_{args.models}.parquet: {len(scored):,} pairs, {time.perf_counter() - t0:.0f}s", flush=True)
+        return
     scored.to_parquet(rd / "test_scores.parquet", index=False)
     scored.to_parquet(rd / f"test_scores_{args.models}.parquet", index=False)  # per-model copy (v2 / v3 side by side)
     pred = decide(scored, tau)

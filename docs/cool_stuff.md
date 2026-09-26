@@ -48,3 +48,33 @@ Only S2/S3 ever have empty addresses (~3%; S1 is always complete, in train **and
 - The empty-address records look like deliberately degraded **copies** of an S1 business: name kept (62.7% identical core name, never zero shared words), address dropped. 97.9% of their S1s also have another match *with* an address.
 - Yet they are v5's biggest error: **76% of the true matches v5 still misses** have an empty address on one side. The reranker usually says yes (median 0.84), but the stacker distrusts these pairs because half of the wrong accepts are also empty-address pairs.
 - So the question for these records is not *"is it a match?"* (almost always yes) but *"**which** S1 does it belong to?"*: an assignment problem. Candidate-side features (how this S1 ranks among all S1s competing for the record, and the gap to the runner-up) answer that directly.
+
+## 4. What each stage fixes, and what is left after v8 (OOF, `scripts/eda_leftover.py`, `docs/results/eda_leftover.md`)
+
+| Stage | F0.5 | True pairs missed (shortlist) | Wrong accepts |
+|---|---|---|---|
+| Model A (τ 0.70) | 0.9779 | 21,509 | 4,496 |
+| + bge reranker (v5, τ 0.65) | 0.9834 | 16,344 | 3,247 |
+| + candidate-side stacker (v8, τ 0.75) | 0.9885 | 14,751 | 1,300 |
+
+(519 more true pairs never reach the shortlist.)
+
+- **The reranker mainly fixes misses; the v8 stacker mainly removes wrong accepts** (3,247 → 1,300).
+- **12,216 true pairs are missed by all three stages.** Nobody has found them yet.
+- **The one-owner rule is not the problem:** only 1 missed pair lost its record to another S1. The misses are simply scored too low.
+- **20% of the misses sit just under the cut-off** (q 0.5–0.75). 29% are hopeless (q < 0.05).
+- **Missing matches (not wrong ones) cause 77% of the remaining loss.** Wrong accepts cause 18%, blocking 2.4%. India and the US lose about the same.
+- **Gibberish names and 1-digit house numbers cut both ways**, so a simple rule can't fix them:
+  - Names sharing no word: 2,110 missed but also 314 wrongly accepted.
+  - A 1-digit-off house number shows up in 7% of *correctly found* pairs too.
+- **Indian-script names are nearly solved:** 7.4% of found pairs vs 1.4% of missed.
+
+## 5. v9 (Model-A competition features): what it fixed and what is still left (`docs/results/eda_v9.md`)
+
+- OOF F0.5 went from 0.9885 to 0.9895. 2,007 misses were fixed and 300 matches newly lost; 298 wrong accepts were removed and 321 new ones added.
+- **v9's biggest relative win is gibberish names at the same address:** 797 of 2,111 fixed (38%). The new feature "this S1 takes almost all of the Model A score for the record" (`a_share`, median 0.92 in fixed pairs) is what identifies the owner.
+- **Empty addresses barely moved:** 846 of 11,111 fixed (8%). 10,265 are still missed.
+- **Of the 12,744 still missed, 8,758 have another S1 ranked above the true one by Model A.** The record looks more like a different business, often one with the same name:
+  - 25% of the still-missed have 6 or more other S1s with the same core name (e.g. 224 × `Cardiology Care`).
+  - With the current features, these are close to unresolvable.
+- **3,986 still-missed pairs have the true S1 ranked #1** but are scored too low (median q9 0.41). This is the remaining headroom for a better model.
