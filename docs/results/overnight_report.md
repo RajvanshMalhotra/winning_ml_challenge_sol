@@ -4,7 +4,7 @@
 - ✅ **We have a first valid submission.** `matching_results.tsv` + `candidate_pairs.tsv` for all **17,32,544** test businesses. The **official validator passes** ("Safe to submit").
   - **Leaderboard file on the laptop:** `~/ml_challenge/output/matching_results.tsv` (97 MB)
   - **Both files on the HPC:** `~/winning_ml_challenge_sol/artifacts/submissions/v1_2/`. `candidate_pairs.tsv` is 2.5 GB, too big for the laptop.
-- **Honest validation score (out-of-fold, official macro F0.5): 0.9594** (India 0.9396, US 0.9726, singletons 0.9355), on 50,000 held-out-style B-split businesses.
+- **Honest validation score (out-of-fold, official macro F0.5): 0.9707 with Model A v2** (India 0.9616, US 0.9767, singletons 0.9619), on 50,000 held-out-style B-split businesses. The submission already written uses v1.2 (0.9594); the v2 submission is being generated (§3).
 - **Candidate search recall: 98.28%** (India 96.46%, US 99.51%), ~108 candidates per business. The ceiling (oracle F0.5) is ≈ 0.99.
 - **bge-m3 (chosen bi-encoder), fine-tuned:** recall@50 **India 99.95%, Indian-script names 100%, US 99.97%** (zero-shot: 95.4% / 91.6% / 98.3%). Fine-tuning essentially solved the cross-script problem. ⚠ The evaluation pool has 1M sampled distractors per country, so real-pool recall will be somewhat lower.
 
@@ -47,7 +47,8 @@ clean (24M records, 22 columns incl. state, landmark, unit, skeleton/phonetic na
 |---|---|---|---|---|---|
 | v1 | base features (fuzzy name/address, house/state/suffix, context) | 0.9458 | 0.9255 | 0.9593 | 0.9223 |
 | v1.1 | + IDF-weighted name overlap, rarest non-shared name word, house-number distance | 0.9561 | 0.9352 | 0.9700 | 0.9298 |
-| **v1.2** | + graph-expansion and hard-name candidate channels | **0.9594** | **0.9396** | **0.9726** | **0.9355** |
+| v1.2 | + graph-expansion and hard-name candidate channels | 0.9594 | 0.9396 | 0.9726 | 0.9355 |
+| **v2** | + **fine-tuned bge-m3 cosine** (and its gap to the S1's best) | **0.9707** | **0.9616** | **0.9767** | **0.9619** |
 
 - Best cut-off τ = 0.70 (precision-leaning, as expected for F0.5). AUC ≈ 0.9997.
 - **Top features:**
@@ -70,7 +71,9 @@ clean (24M records, 22 columns incl. state, landmark, unit, skeleton/phonetic na
 |---|---|---|---|
 | Zero-shot (1M distractors per country) | 95.39% | 91.57% | 98.29% |
 | **Fine-tuned** (A-train, 3000 steps, cross-script oversampling) | **99.95%** (R@10 99.69%) | **100.00%** (R@10 99.99%) | **99.97%** |
-| Fine-tuned on US only → India (France stand-in) | *filled below* | *filled below* | — |
+| **Fine-tuned on US only → tested on India** (France stand-in) | **99.21%** (R@10 97.97%) | **98.57%** (R@10 95.66%) | — |
+
+**Transfer to an unseen country:** trained on US only (no Indian records, no Indian scripts), it reaches 99.2% on India and **98.6% on Indian-script names** (zero-shot: 91.6%). The matching skill transfers across countries and scripts, which is the best evidence we have for France.
 
 **Implication:** the fine-tuned bge-m3 should become a **dense candidate-search channel** (FAISS per state group). It should lift India's candidate recall well above the current 96.46% and handle Indian-script names directly.
 
@@ -87,7 +90,7 @@ clean (24M records, 22 columns incl. state, landmark, unit, skeleton/phonetic na
 
 ## 6. What's next
 1. **Upload `~/ml_challenge/output/matching_results.tsv`** to the leaderboard. It's the first real score.
-2. **Model A v2** = v1.2 + the fine-tuned bge-m3 similarity feature (running). If it beats 0.9594, embed the test pairs and re-submit.
+2. **Upload the v2 submission** (`artifacts/submissions/v2/`) once it validates. Its out-of-fold score is 0.9707 vs 0.9594.
 3. **Singletons / "no match" model** and **S2↔S3 group decisions** (knowledge-graph Model B), aimed at precision.
 4. **Train on more B-split businesses** (50k now; up to 13 lakh are available) once the GPU/CPU are less contended.
 5. **Final zip:** package `code/business_entity_resolution/` (src, README, pinned requirements) + the documentation template.
