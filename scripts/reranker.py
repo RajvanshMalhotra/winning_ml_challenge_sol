@@ -37,6 +37,7 @@ log = lambda *a: print(f"[{time.perf_counter() - T0:6.0f}s]", *a, flush=True)
 def texts(fam: str, ids: np.ndarray) -> list[str]:
     r = pd.read_parquet(records_path(cfg, fam), columns=["entity_id", "name_raw", "addr_raw", "country"]).set_index("entity_id")
     r = r.reindex(ids)
+    assert r.name_raw.notna().all(), f"{int(r.name_raw.isna().sum())} ids not found in records_{fam}"
     return [record_text(n, a, c) for n, a, c in zip(r.name_raw, r.addr_raw, r.country)]
 
 
@@ -73,7 +74,6 @@ def train() -> None:
     assert tr.s1_id.notna().all() and tr.cand_id.notna().all(), "missing ids in reranker training pairs"
     log(f"reranker train pairs: {len(tr):,} ({tr.label.mean():.1%} positive)")
     t1, t2 = texts("train", tr.s1_id.to_numpy()), texts("train", tr.cand_id.to_numpy())
-    assert not any("name: nan" in x for x in t1 + t2), "empty record text in reranker training pairs"
     d = Dataset.from_dict({"text1": t1, "text2": t2,
                            "label": tr.label.astype(np.float32).tolist()})
     model = load_model()
