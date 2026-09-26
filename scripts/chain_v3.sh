@@ -12,8 +12,10 @@ step() { local name=$1; shift
 
 # --- v2 branch: Model B v2 on A v2 + reranker (needs the v2 reranker chain to have finished) ---
 while tmux has-session -t rerank 2>/dev/null; do sleep 60; done
-step b2_on_v2_train  $PY scripts/stage2_emb.py train
-step b2_on_v2_submit env SUB=v4 $PY scripts/stage2_emb.py submit
+if [ "${SKIP_V2_BRANCH:-0}" != "1" ]; then
+  step b2_on_v2_train  $PY scripts/stage2_emb.py train
+  step b2_on_v2_submit env SUB=v4 $PY scripts/stage2_emb.py submit
+fi
 
 # --- v3 branch (needs Model A v3 trained) ---
 until grep -q "MATCHER_EXIT" artifacts/logs/matcher_v3.log 2>/dev/null; do sleep 60; done

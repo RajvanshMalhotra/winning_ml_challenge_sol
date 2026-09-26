@@ -96,10 +96,13 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         pairs = pairs.join(ctx, on="cand_id")
         pairs["is_cand_best"] = (pairs.tfidf_sim >= pairs.cand_best_sim - 1e-6).astype(np.int8)
         f = pair_features(pairs, rec, workers=cfg["n_jobs"], idf=idf)
-        if emb is not None:
-            q = np.asarray(emb[emb_code.reindex(pairs.s1_id).to_numpy()], dtype=np.float32)
-            d = np.asarray(emb[emb_code.reindex(pairs.cand_id).to_numpy()], dtype=np.float32)
-            f["emb_cos"] = np.einsum("ij,ij->i", q, d).astype(np.float32)
+        if emb is not None:  # in 1M-pair slices: gathering all vectors of a chunk at once needs ~200 GB
+            a, b = emb_code.reindex(pairs.s1_id).to_numpy(), emb_code.reindex(pairs.cand_id).to_numpy()
+            cos = np.empty(len(pairs), np.float32)
+            for i in range(0, len(pairs), 1_000_000):
+                cos[i:i + 1_000_000] = np.einsum("ij,ij->i", np.asarray(emb[a[i:i + 1_000_000]], dtype=np.float32),
+                                                 np.asarray(emb[b[i:i + 1_000_000]], dtype=np.float32))
+            f["emb_cos"] = cos
             f["emb_cos_gap"] = (f.groupby(pairs.s1_id.to_numpy()).emb_cos.transform("max") - f.emb_cos).astype(np.float32)
         for c in feat_names:  # a channel absent on test becomes 0 / NaN like in training fill
             if c not in f:
