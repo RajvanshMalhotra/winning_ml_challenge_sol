@@ -67,10 +67,14 @@ def train() -> None:
     c["label"] = [x in truth[s] for s, x in zip(c.s1_id, c.cand_id)]
     pos = c[c.label]
     hard = c[~c.label & ((c.tfidf_rank <= 5) | (c.key_hits >= 2))]
-    neg = hard.groupby("s1_id", group_keys=False).apply(lambda g: g.sample(min(len(g), 4), random_state=0))
+    # up to 4 hard negatives per S1 (random order + head keeps all columns; groupby.apply drops s1_id in pandas 3)
+    neg = hard.assign(r=np.random.default_rng(0).random(len(hard))).sort_values("r").groupby("s1_id").head(4).drop(columns="r")
     tr = pd.concat([pos, neg]).sample(frac=1.0, random_state=0)
+    assert tr.s1_id.notna().all() and tr.cand_id.notna().all(), "missing ids in reranker training pairs"
     log(f"reranker train pairs: {len(tr):,} ({tr.label.mean():.1%} positive)")
-    d = Dataset.from_dict({"text1": texts("train", tr.s1_id.to_numpy()), "text2": texts("train", tr.cand_id.to_numpy()),
+    t1, t2 = texts("train", tr.s1_id.to_numpy()), texts("train", tr.cand_id.to_numpy())
+    assert not any("name: nan" in x for x in t1 + t2), "empty record text in reranker training pairs"
+    d = Dataset.from_dict({"text1": t1, "text2": t2,
                            "label": tr.label.astype(np.float32).tolist()})
     model = load_model()
     model.model.float()  # fp32 master weights for training; bf16 autocast below
