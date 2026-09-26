@@ -1,0 +1,21 @@
+# Submission v8fr: v8 with France routed to Qwen3-Reranker-4B (leaderboard gamble)
+
+- `matching_results.tsv`: 1,732,544 test Source-1 businesses.
+- `candidate_pairs.tsv` is identical to v8's (2.3 GB, too big for GitHub). It is on the HPC at `~/winning_ml_challenge_sol/artifacts/submissions/v8fr/`.
+- Everything is v8 except the reranker column `rr` on the uncertain band (Model A 0.01 ≤ p ≤ 0.99):
+  - **US / India:** fine-tuned bge-reranker only (unchanged).
+  - **France:** zero-shot Qwen3-Reranker-4B only (no bge).
+  - The Qwen score is put on bge's scale by matching calibrated match probabilities, using Platt fits on the 272k labelled OOF band pairs (US + India): `rr = sigmoid((0.440·qwen − 3.802 + 2.027) / 0.411)`.
+  - Same v8 stacker models (`cand_side/cs_fold*`), τ = 0.75, one-owner rule.
+- **Only partial Qwen coverage** (time limit, shared GPU, ~60 pairs/s):
+  - Qwen scored 114,688 of the 671,321 France band pairs: those with the highest Model A score, p ≥ 0.754.
+  - The other 556,633 France band pairs have **no reranker score** (neither bge nor Qwen), the same as pairs outside the band.
+- Compared with v8:
+  - Only France rows differ: 42,309 rows.
+  - 26,992 matches added, 19,765 removed.
+  - France 3.36 matches/business (v8: 3.34), 5.1% empty lists.
+- Offline evidence was negative:
+  - The India rehearsal of this routing scored 0.9694 vs bge 0.9834.
+  - On the uncertain pairs, Qwen's AUC is 0.69 vs bge 0.91.
+  - `docs/results/france_qwen_rehearsal.md` has the details.
+- Code: `scripts/france_route_v8.py`.
