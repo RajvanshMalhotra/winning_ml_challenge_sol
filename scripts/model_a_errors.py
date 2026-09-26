@@ -9,7 +9,8 @@ from ber.evaluate import f05
 from ber.io import read_truth
 
 TAU = float(sys.argv[1]) if len(sys.argv) > 1 else 0.70
-o = pd.read_parquet("artifacts/v2/matcher/oof.parquet")
+OOF = sys.argv[2] if len(sys.argv) > 2 else "artifacts/v2/matcher/oof.parquet"
+o = pd.read_parquet(OOF)
 rec = pd.read_parquet("artifacts/v2/records_train.parquet", columns=["entity_id", "country", "name_raw", "addr_raw"]).set_index("entity_id")
 truth = read_truth("data/student_resource/dataset")
 s = o[o.p >= TAU]
@@ -42,3 +43,22 @@ fn = o[o.label.astype(bool) & (o.p < TAU)]
 show("wrong merges (predicted, not true) — highest-confidence ones", fp.nlargest(200, "p"))
 show("true matches the model rejected (p < tau)", fn)
 show("singleton false merges", s[s.s1_id.isin(d.s1[single]) ])
+
+# loss decomposition: how much F0.5 would we gain by fixing each error type alone (per S1, recompute F0.5)?
+def f05_from(tp, fp, n_true):
+    if n_true == 0:
+        return 1.0 if fp == 0 else 0.0
+    if tp == 0:
+        return 0.0
+    p, r = tp / (tp + fp), tp / n_true
+    return 1.25 * p * r / (0.25 * p + r)
+base = d.f05.mean()
+fix_fp = np.mean([f05_from(t, 0, n) for t, n in zip(d.tp, d.n_true)])
+fix_model = np.mean([f05_from(t + m, f, n) for t, f, m, n in zip(d.tp, d.fp, d.fn_model, d.n_true)])
+fix_block = np.mean([f05_from(t + b, f, n) for t, f, b, n in zip(d.tp, d.fp, d.fn_blocking, d.n_true)])
+print(f"\n== potential gains (fix one error type completely): wrong merges +{fix_fp - base:.4f} | "
+      f"model-rejected true matches +{fix_model - base:.4f} | blocking misses +{fix_block - base:.4f}")
+for c, g in d.groupby("country"):
+    print(f"   {c}: F0.5 {g.f05.mean():.4f} | fix FP +{np.mean([f05_from(t, 0, n) for t, n in zip(g.tp, g.n_true)]) - g.f05.mean():.4f}"
+          f" | fix model-FN +{np.mean([f05_from(t + m, f, n) for t, f, m, n in zip(g.tp, g.fp, g.fn_model, g.n_true)]) - g.f05.mean():.4f}"
+          f" | fix blocking-FN +{np.mean([f05_from(t + b, f, n) for t, f, b, n in zip(g.tp, g.fp, g.fn_blocking, g.n_true)]) - g.f05.mean():.4f}")
