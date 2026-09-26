@@ -13,6 +13,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "bakeoff": ("ber.contrastive.bakeoff", "bi-encoder bake-off: zeroshot | finetune | report"),
     "matcher": ("ber.matcher", "Model A: LightGBM matcher, out-of-fold on a B-split sample"),
     "predict": ("ber.predict", "score test candidates with Model A and write the submission files"),
+    "stage2": ("ber.stage2", "Model B: duplicate-support re-scoring on top of Model A (train | predict)"),
 }
 
 
