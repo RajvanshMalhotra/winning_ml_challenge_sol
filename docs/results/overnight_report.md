@@ -1,10 +1,11 @@
 # Overnight Report: 25–26 Sep 2026
 
 ## TL;DR
-- ✅ **We have a first valid submission.** `matching_results.tsv` + `candidate_pairs.tsv` for all **17,32,544** test businesses. The **official validator passes** ("Safe to submit").
-  - **Leaderboard file on the laptop:** `~/ml_challenge/output/matching_results.tsv` (97 MB)
-  - **Both files on the HPC:** `~/winning_ml_challenge_sol/artifacts/submissions/v1_2/`. `candidate_pairs.tsv` is 2.5 GB, too big for the laptop.
-- **Honest validation score (out-of-fold, official macro F0.5): 0.9707 with Model A v2** (India 0.9616, US 0.9767, singletons 0.9619), on 50,000 held-out-style B-split businesses. The submission already written uses v1.2 (0.9594); the v2 submission is being generated (§3).
+- ✅ **Two valid submissions; upload v2.** Both cover all **17,32,544** test businesses, and the **official validator passes** for both ("Safe to submit").
+  - **Upload this one: `~/ml_challenge/output/matching_results.tsv` = v2** (Model A v2, out-of-fold F0.5 0.9707)
+  - Backup: `~/ml_challenge/output/matching_results_v1_2.tsv` (v1.2, out-of-fold 0.9594)
+  - **On the HPC:** `~/winning_ml_challenge_sol/artifacts/submissions/{v1_2,v2}/` (plus `output/` = v2), including `candidate_pairs.tsv` (2.5 GB, too big for the laptop)
+- **Honest validation score (out-of-fold, official macro F0.5): 0.9707 with Model A v2** (India 0.9616, US 0.9767, singletons 0.9619), on 50,000 held-out-style B-split businesses. The leaderboard score will differ a little (France, the different test pool), but the checks look healthy: v2 predicts 3.31 matches per business, 5.9% empty lists, and **France 3.30**, in line with US 3.37 and India 3.27.
 - **Candidate search recall: 98.28%** (India 96.46%, US 99.51%), ~108 candidates per business. The ceiling (oracle F0.5) is ≈ 0.99.
 - **bge-m3 (chosen bi-encoder), fine-tuned:** recall@50 **India 99.95%, Indian-script names 100%, US 99.97%** (zero-shot: 95.4% / 91.6% / 98.3%). Fine-tuning essentially solved the cross-script problem. ⚠ The evaluation pool has 1M sampled distractors per country, so real-pool recall will be somewhat lower.
 
@@ -89,8 +90,8 @@ clean (24M records, 22 columns incl. state, landmark, unit, skeleton/phonetic na
    - Someone on the shared account is running **`ngrok tcp 22`** (a tmux session named `ngrok`). That exposes the HPC's SSH login to the internet. Please check who started it.
 
 ## 6. What's next
-1. **Upload `~/ml_challenge/output/matching_results.tsv`** to the leaderboard. It's the first real score.
-2. **Upload the v2 submission** (`artifacts/submissions/v2/`) once it validates. Its out-of-fold score is 0.9707 vs 0.9594.
+1. **Upload `~/ml_challenge/output/matching_results.tsv` (v2)** to the leaderboard for the first real score. Keep v1.2 as a fallback comparison.
+2. **Dense candidate search with the fine-tuned bge-m3** (FAISS per state group; test embeddings are already cached in `artifacts/v2/emb_test_bgem3_bgem3__finetune.npy`). Expected to lift India's candidate recall from 96.5% towards 99%.
 3. **Singletons / "no match" model** and **S2↔S3 group decisions** (knowledge-graph Model B), aimed at precision.
 4. **Train on more B-split businesses** (50k now; up to 13 lakh are available) once the GPU/CPU are less contended.
 5. **Final zip:** package `code/business_entity_resolution/` (src, README, pinned requirements) + the documentation template.
@@ -98,4 +99,6 @@ clean (24M records, 22 columns incl. state, landmark, unit, skeleton/phonetic na
 ## Where everything is
 - **Branch:** `feat/foundations-bakeoff` (GitHub). Reports are in `docs/results/`.
 - **HPC:** `~/winning_ml_challenge_sol`, env `ber-sol`, artifacts in `artifacts/v2/`, logs in `artifacts/logs/`.
-- **tmux sessions:** `bakeoff` (bge-m3), `chain` (Model A v2); `ber` and `ngrok` are your teammate's.
+- **Models:** Model A v1.2 → `artifacts/v2/matcher/`, **Model A v2 → `artifacts/v2/matcher_emb/`** (5 LightGBM folds + `best.json`, τ = 0.70). Fine-tuned bge-m3 → `artifacts/v2/bakeoff/bgem3__finetune/model`.
+- **All overnight jobs have finished;** no tmux sessions of ours are running. (`ber` and `ngrok` are your teammate's.)
+- **Reproduce the submission:** `python -m ber --config configs/v2.yaml predict --models matcher_emb --out output`
