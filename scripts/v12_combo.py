@@ -22,8 +22,8 @@ from ber.matcher import decide, evaluate, md_table
 from ber.normalize import records_path
 from ber.predict import write_submission
 
-V9D, QD = RD / "cand_side_v9", RD / "reranker_qwen2"
-OUT = RD / "v12"
+V9D, QD = RD / "cand_side_v9", RD / os.environ.get("QR_SRC", "reranker_qwen2")
+OUT = RD / os.environ.get("V12_OUT", "v12")
 OUT.mkdir(exist_ok=True)
 SUB = os.environ.get("SUB", "v12")
 FEATS = BASE + NEW + V9
@@ -91,10 +91,13 @@ def submit() -> None:
     for col in V9:
         f[col] = v[col].to_numpy()
     del v
+    # stage-2 learned filter: the final matcher only runs on pairs Model A does not rule out (p >= CAND_MIN);
+    # candidate_pairs.tsv is exactly this set (~5 per S1 instead of ~132 from blocking)
+    f = f[f.p.to_numpy() >= float(os.environ.get("CAND_MIN", 0.01))].reset_index(drop=True)
     models = [lgb.Booster(model_file=str(p)) for p in sorted(OUT.glob("v12_fold*.txt"))]
     p = np.mean([m.predict(f[FEATS], num_iteration=m.best_iteration) for m in models], axis=0)
     sc = pd.DataFrame({"s1_id": f.s1_id, "cand_id": f.cand_id, "p": p})
-    sc.to_parquet(OUT / "test_q12.parquet", index=False)
+    sc.to_parquet(OUT / "test_final_scores.parquet", index=False)
     pred = decide(sc, best["tau"])
     rec = pd.read_parquet(records_path(cfg, "test"), columns=["entity_id", "source", "country"])
     s1_all = rec.entity_id[rec.source == 1].tolist()

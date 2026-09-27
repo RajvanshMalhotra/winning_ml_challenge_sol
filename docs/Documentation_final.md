@@ -21,7 +21,7 @@ We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 c
 - **The metric is macro F0.5 per S1, with singletons.** False merges cost about twice as much as misses, and a wrong match on a singleton costs a whole point.
 
 ### 2.2 Solution Strategy
-**Approach Type:** Hybrid: multi-channel blocking → gradient-boosted pair classifier → fine-tuned LLM cross-encoder → stacker with global (candidate-side) competition features → thresholded one-to-many assignment.
+**Approach Type:** Hybrid: multi-channel blocking → gradient-boosted pair classifier as a learned filter (132 → 5 candidates per S1) → fine-tuned LLM cross-encoder → stacker with global (candidate-side) competition features → thresholded one-to-many assignment.
 
 **Core Innovation:**
 1. **Candidate-side competition.** For each (S1, record) pair we compute how this S1 ranks among **all** S1s that have the record as a candidate: by dense similarity, TF-IDF, name similarity and Model A probability, together with the margin to the best other S1 and the number of competitors. This turns per-pair scoring into an implicit global assignment. It raised precision on address-less records from 87% to 97% and gave the largest single gain (+0.005).
@@ -39,7 +39,7 @@ Blocking runs per country and per learned *state group* (states that the data of
   4. **Hard-name search** with Qwen3-Embedding-0.6B for native-script / transliterated and empty-address records.
   5. **Graph expansion**: neighbours of strong candidates through record–record TF-IDF edges.
   6. **Dense retrieval**, top-30, with **bge-m3 fine-tuned** contrastively (cached multiple-negatives ranking loss) on training pairs, including extra English → Indian-script pairs.
-- **Candidate pairs generated:** 229,254,961 test pairs for 1,732,544 S1 businesses (≈132 per S1). `candidate_pairs.tsv` is exactly the set scored by the matching model.
+- **Candidate pairs generated:** blocking yields 229,254,961 test pairs (≈132 per S1). A **learned filter** then keeps only pairs with Model A (LightGBM) probability ≥ 0.01, which leaves **8,828,474 pairs, 5.1 per S1** (true matches average 3.4). The final matcher (Qwen reranker + stacker) runs only on these, and `candidate_pairs.tsv` is exactly this set. Recall ceiling after the filter is 99.51% (validation); no pair the final model accepts is lost by the filter.
 - **How true matches were not lost:** each channel was added only when it measurably raised recall on held-out training businesses. Blocking recall: TF-IDF + keys **98.3%** → with name-only / hard-name / graph channels → with dense bge-m3 **99.90%** (India 99.85%, US 99.93%). Fine-tuning bge-m3 only on US data still raised Indian-script recall@50 from 91.6% to 98.6%, which is evidence that it transfers to unseen languages such as French.
 
 ---
