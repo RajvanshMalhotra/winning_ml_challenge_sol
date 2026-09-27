@@ -7,7 +7,7 @@
 ---
 
 ## 1. Executive Summary
-We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 candidates per business). A LightGBM matcher scores every candidate pair. A **fine-tuned Qwen3-Reranker-4B cross-encoder** (LoRA, Apache-2.0) then re-reads every uncertain pair. A final LightGBM stacker adds **candidate-side "competition" features**: it asks, from each S2/S3 record's point of view, which of *all* S1 businesses owns it. Because test contains far more records whose owner is absent from S1, the stacker is trained on **test-like frames** in which a share of training businesses is hidden. The final decision is a precision-oriented cut-off plus a one-owner rule. Out-of-fold macro F0.5 on held-out training businesses is **0.9904** (0.990 under test-like conditions); the best public leaderboard score is **LB_BEST**.
+We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 candidates per business). A LightGBM matcher scores every candidate pair. A **fine-tuned Qwen3-Reranker-4B cross-encoder** (LoRA, Apache-2.0) then re-reads every uncertain pair. A final LightGBM stacker adds **candidate-side "competition" features**: it asks, from each S2/S3 record's point of view, which of *all* S1 businesses owns it. Because test contains far more records whose owner is absent from S1, the stacker is trained on **test-like frames** in which a share of training businesses is hidden. The final decision is a precision-oriented cut-off plus a one-owner rule. Out-of-fold macro F0.5 on held-out training businesses is **0.9904** (0.990 under test-like conditions); the best public leaderboard score is **0.98709** (v16).
 
 ---
 
@@ -89,7 +89,7 @@ Blocking runs per country and per learned *state group* (states that the data of
 | v8 | + candidate-side competition features | 0.9885 | 0.983 |
 | v12 | + Model-A competition / cluster support; fine-tuned Qwen3-Reranker-4B replaces bge | 0.9904 | 0.9864 |
 | v14 | + stacker trained on test-like hidden-owner frames | 0.9901 (test-like) | 0.98663 |
-| **v16** | + further-trained Qwen, three rerankers side by side, stronger stacker, 3 hidden samples | **0.9904 (test-like)** | **LB_V16** |
+| **v16** | + further-trained Qwen, three rerankers side by side, stronger stacker, 3 hidden samples | **0.9904 (test-like)** | **0.98709** |
 
 - **F_0.5 Score (macro):** **0.9904** out-of-fold (singletons 0.9939, India 0.9913, US 0.9898); 0.9904 under test-like hidden-owner conditions for the final model.
 - **Common false positives (wrong merges):**
