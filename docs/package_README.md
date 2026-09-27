@@ -95,8 +95,8 @@ Randomness is seeded from `configs/base.yaml`. Values that could differ slightly
    - graph expansion
    - fine-tuned bge-m3 dense top-30
 
-   Blocking recall on held-out training businesses is 99.9%. `candidate_pairs.tsv` is exactly this set.
-3. **Model A** (LightGBM, 48 features) scores all pairs.
+   Blocking recall on held-out training businesses is 99.9%.
+3. **Model A** (LightGBM, 48 features) scores all pairs and acts as a **learned filter**: only pairs with p ≥ 0.01 go on (≈5 per S1; recall ceiling 99.5%). `candidate_pairs.tsv` is exactly this filtered set, the input of the final matcher.
 4. Pairs with 0.01 ≤ p ≤ 0.99 are re-read by **Qwen3-Reranker-4B fine-tuned with LoRA** on training pairs with hard negatives.
 5. A **LightGBM stacker** combines:
    - Model A
