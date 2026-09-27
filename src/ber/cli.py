@@ -14,6 +14,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "matcher": ("ber.matcher", "Model A: LightGBM matcher, out-of-fold on a B-split sample"),
     "predict": ("ber.predict", "score test candidates with Model A and write the submission files"),
     "stage2": ("ber.stage2", "Model B: duplicate-support re-scoring on top of Model A (train | predict)"),
+    "proxy": ("ber.proxy", "unseen-country proxy set: measure | build | score | calibrate"),
 }
 
 

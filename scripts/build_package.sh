@@ -2,7 +2,7 @@
 # Assemble <team>_submission.zip.  usage: build_package.sh <team_name> <submission_dir with the two TSVs>
 set -euo pipefail
 TEAM=$1; SUBDIR=$2; MEMBERS=${3:-TEAM_MEMBERS}
-P=package/${TEAM}_submission
+P=artifacts/package/${TEAM}_submission
 rm -rf "$P"; mkdir -p "$P/output" "$P/code/business_entity_resolution/src"
 C=$P/code/business_entity_resolution
 cp -r src/ber "$C/src/"; cp -r scripts "$C/src/scripts"; cp -r configs "$C/src/configs"; cp pyproject.toml "$C/src/"
@@ -15,5 +15,5 @@ sed -e "s/TEAM_NAME/${TEAM}/" -e "s/TEAM_MEMBERS/${MEMBERS}/" docs/Documentation
 cp "$SUBDIR/matching_results.tsv" "$SUBDIR/candidate_pairs.tsv" "$P/output/"
 python3 data/student_resource/utils/validate_submission.py --matching "$P/output/matching_results.tsv" \
     --candidate "$P/output/candidate_pairs.tsv" --test-dir data/student_resource/dataset/test | tail -2
-(cd package && rm -f "${TEAM}_submission.zip" && zip -qr -9 "${TEAM}_submission.zip" "${TEAM}_submission")
-ls -la "package/${TEAM}_submission.zip"; unzip -l "package/${TEAM}_submission.zip" | tail -1
+(cd artifacts/package && rm -f "${TEAM}_submission.zip" && zip -qr -9 "${TEAM}_submission.zip" "${TEAM}_submission")
+ls -la "artifacts/package/${TEAM}_submission.zip"; unzip -l "artifacts/package/${TEAM}_submission.zip" | tail -1
