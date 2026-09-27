@@ -21,7 +21,8 @@ src/
 │   ├── reranker.py      bge-reranker band scores (feature frame of the v8 stacker)
 │   ├── cand_side.py, v8_errors.py, cand_side_v9.py   candidate-side competition features
 │   ├── qwen_reranker.py, vllm_score.py              Qwen3-Reranker-4B LoRA fine-tuning + vLLM scoring
-│   └── v12_combo.py     final stacker + submission
+│   ├── hidden_sim.py    test-like hidden-owner frames for the stacker
+│   └── v16.py           final stacker (3 rerankers, 3 hidden samples) + submission
 ├── configs/             YAML configs (paths, blocking, training, matcher)
 ├── pyproject.toml
 ├── requirements.txt       (repo root) main environment, pinned
@@ -105,4 +106,4 @@ Randomness is seeded from `configs/base.yaml`. Values that could differ slightly
    - cluster support and address competition
 6. A pair is accepted when its stacked probability is ≥ 0.75, and each S2/S3 record is kept only for its best S1 (one-owner rule).
 
-Out-of-fold macro F0.5 is 0.9904; the public leaderboard score is 0.986.
+Out-of-fold macro F0.5 is 0.9904 (0.9904 under test-like conditions); see the documentation for leaderboard scores.

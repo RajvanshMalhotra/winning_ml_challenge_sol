@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end reproduction of the final submission (v12): data -> blocking -> Model A -> Qwen reranker -> stacker -> output/.
+# End-to-end reproduction of the final submission (v16): data -> blocking -> Model A -> Qwen reranker -> stacker -> output/.
 # Run from the code root with the `ber` env active (see README.md). GPU steps are marked [GPU].
 # Paths (data dir, run dir, validator) come from configs/base.yaml + configs/v2.yaml; artifacts land in artifacts/v2/.
 set -euo pipefail
@@ -46,14 +46,27 @@ step $PY scripts/cand_side_v9.py feats test
 step $PY scripts/cand_side_v9.py train
 # 12. [GPU] fine-tune Qwen3-Reranker-4B (Apache-2.0) with LoRA on 1.04M A_train pairs (hard negatives/positives),
 #     then score every uncertain pair (0.01 <= Model A p <= 0.99) of OOF and test with vLLM
-export QR_DIR=reranker_qwen2 QR_PROMPT=short QR_GC=0 QR_BS=32 QR_MEM=0.82 QR_N=90000 QR_HOURS=40 QR_VLLM=1 \
-       PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-step $PY scripts/qwen_reranker.py train
-step $PY scripts/qwen_reranker.py score_oof
-step $PY scripts/qwen_reranker.py stack
-step $PY scripts/qwen_reranker.py score_test
-# 13. final stacker (v8 + v9 features, Qwen score in the reranker column), cut-off 0.75 + one-owner rule
-step $PY scripts/v12_combo.py train
-SUB=final step $PY scripts/v12_combo.py submit
-mkdir -p output && cp artifacts/submissions/final/matching_results.tsv artifacts/submissions/final/candidate_pairs.tsv output/
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export QR_PROMPT=short QR_GC=0 QR_BS=32 QR_MEM=0.82 QR_VLLM=1
+step env QR_DIR=reranker_qwen2 QR_N=90000 QR_HOURS=40 $PY scripts/qwen_reranker.py train
+step env QR_DIR=reranker_qwen2 $PY scripts/qwen_reranker.py score_oof
+step env QR_DIR=reranker_qwen2 $PY scripts/qwen_reranker.py stack
+step env QR_DIR=reranker_qwen2 $PY scripts/qwen_reranker.py score_test
+#     continue training the same adapter on 90k NEW A_train businesses (lower LR), score OOF + test again
+step env QR_DIR=reranker_qwen3 QR_N=90000 QR_SKIP=90000 QR_LR=5e-5 QR_HOURS=4.5 \
+  QR_INIT=artifacts/v2/reranker_qwen2/adapter $PY scripts/qwen_reranker.py train
+step env QR_DIR=reranker_qwen3 $PY scripts/qwen_reranker.py score_oof
+step env QR_DIR=reranker_qwen3 $PY scripts/qwen_reranker.py score_test
+# 13. test-like "hidden owner" frames: in test only ~60% of S2/S3 records have their owner in S1 (74% in train), so the
+#     competition features are recomputed with 20% of the non-OOF train S1s hidden (3 random samples)
+step $PY scripts/v12_combo.py train            # reference stacker (v12) used in the hidden-owner comparison
+step $PY scripts/hidden_sim.py 0.2 0
+step $PY scripts/hidden_sim.py 0.2 1
+step $PY scripts/hidden_sim.py 0.2 2
+# 14. final stacker: v8 + v9 features, Qwen (v13) in the reranker column plus the earlier Qwen and bge scores and their
+#     disagreement, trained on each hidden frame; mean of 3 x 5 models; learned filter p >= 0.01; cut-off + one-owner rule
+step $PY scripts/v16.py ablate
+step $PY scripts/v16.py final
+step $PY scripts/v16.py submit
+mkdir -p output && cp artifacts/submissions/v16/matching_results.tsv artifacts/submissions/v16/candidate_pairs.tsv output/
 echo "done: output/matching_results.tsv, output/candidate_pairs.tsv"

@@ -7,7 +7,7 @@
 ---
 
 ## 1. Executive Summary
-We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 candidates per business). A LightGBM matcher scores every candidate pair. A **fine-tuned Qwen3-Reranker-4B cross-encoder** (LoRA, Apache-2.0) then re-reads every uncertain pair. A final LightGBM stacker adds **candidate-side "competition" features**: it asks, from each S2/S3 record's point of view, which of *all* S1 businesses owns it. The final decision is a precision-oriented cut-off plus a one-owner rule. Out-of-fold macro F0.5 on held-out training businesses is **0.9904**; the public leaderboard score is **0.986**.
+We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 candidates per business). A LightGBM matcher scores every candidate pair. A **fine-tuned Qwen3-Reranker-4B cross-encoder** (LoRA, Apache-2.0) then re-reads every uncertain pair. A final LightGBM stacker adds **candidate-side "competition" features**: it asks, from each S2/S3 record's point of view, which of *all* S1 businesses owns it. Because test contains far more records whose owner is absent from S1, the stacker is trained on **test-like frames** in which a share of training businesses is hidden. The final decision is a precision-oriented cut-off plus a one-owner rule. Out-of-fold macro F0.5 on held-out training businesses is **0.9904** (0.990 under test-like conditions); the best public leaderboard score is **LB_BEST**.
 
 ---
 
@@ -25,7 +25,8 @@ We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 c
 
 **Core Innovation:**
 1. **Candidate-side competition.** For each (S1, record) pair we compute how this S1 ranks among **all** S1s that have the record as a candidate: by dense similarity, TF-IDF, name similarity and Model A probability, together with the margin to the best other S1 and the number of competitors. This turns per-pair scoring into an implicit global assignment. It raised precision on address-less records from 87% to 97% and gave the largest single gain (+0.005).
-2. **Fine-tuned Qwen3-Reranker-4B.** It is trained on hard negatives (wrong-owner records, namesakes, same-building businesses) and hard positives (address-less copies, gibberish names, digit typos). As a reranker its AUC on uncertain pairs is **0.976**, versus 0.907 for the fine-tuned bge-reranker it replaced.
+2. **Test-like training for the stacker.** In test only ~60% of S2/S3 records have their owner in S1 (74% in train), so a decoy often looks *uncontested*. We recompute the competition features with 20% of the (non-validation) training businesses hidden, in 3 random samples, and train the stacker on these frames. Under test-like conditions this lifts validation F0.5 from 0.9897 to 0.9901, mostly on singletons (0.9907 → 0.9932), and it improved the leaderboard (0.9864 → 0.98663).
+3. **Fine-tuned Qwen3-Reranker-4B.** It is trained on hard negatives (wrong-owner records, namesakes, same-building businesses) and hard positives (address-less copies, gibberish names, digit typos). As a reranker its AUC on uncertain pairs is **0.976**, versus 0.907 for the fine-tuned bge-reranker it replaced.
 
 ---
 
@@ -70,7 +71,8 @@ Blocking runs per country and per learned *state group* (states that the data of
   - Pairs: true matches; hard negatives (look-alikes, wrong-owner, namesakes, same address, address-less); hard positives shown twice.
   - Loss: binary cross-entropy on the yes/no logit.
   - Applied to every pair with 0.01 ≤ Model A p ≤ 0.99 (3.7M test pairs, scored with vLLM).
-- **Stacker:** LightGBM, same folds as Model A.
+  - Then trained further on 90k *new* businesses at half the learning rate (AUC 0.9764 → 0.9772).
+- **Stacker:** LightGBM, same folds as Model A, trained on 3 test-like (hidden-owner) frames; the final probability is the mean of 3 × 5 models. It receives the two Qwen reranker scores **and** the bge-reranker score, plus their disagreement, so it can be cautious where the rerankers disagree.
 - The bi-encoders (bge-m3, MIT; Qwen3-Embedding-0.6B, Apache-2.0) are used for blocking and features. **All models are MIT/Apache-2.0 and ≤ 8B parameters.**
 
 **Threshold selection method:** the macro F0.5 cut-off τ is tuned directly on out-of-fold predictions, with the exact competition metric computed per S1 including singletons. τ = 0.75. Then a **one-owner rule**: each S2/S3 record is kept only for the S1 with the highest score above τ.
@@ -85,9 +87,11 @@ Blocking runs per country and per learned *state group* (states that the data of
 | v3 | + bge cross-encoder on uncertain pairs | 0.9784 | 0.973 |
 | v5 | + dense bge-m3 blocking channel (recall 98.3% → 99.9%) | 0.9834 | 0.979 |
 | v8 | + candidate-side competition features | 0.9885 | 0.983 |
-| **v12** | + Model-A competition / cluster support; fine-tuned Qwen3-Reranker-4B replaces bge | **0.9904** | **0.986** |
+| v12 | + Model-A competition / cluster support; fine-tuned Qwen3-Reranker-4B replaces bge | 0.9904 | 0.9864 |
+| v14 | + stacker trained on test-like hidden-owner frames | 0.9901 (test-like) | 0.98663 |
+| **v16** | + further-trained Qwen, three rerankers side by side, stronger stacker, 3 hidden samples | **0.9904 (test-like)** | **LB_V16** |
 
-- **F_0.5 Score (macro):** **0.9904** out-of-fold (singletons 0.9939, India 0.9913, US 0.9898).
+- **F_0.5 Score (macro):** **0.9904** out-of-fold (singletons 0.9939, India 0.9913, US 0.9898); 0.9904 under test-like hidden-owner conditions for the final model.
 - **Common false positives (wrong merges):**
   - an address-less record given to the wrong namesake S1
   - branches of a chain with near-identical names in different streets
@@ -119,10 +123,12 @@ High recall comes from combining complementary blocking channels. Precision come
   - hard-name, graph and dense channels
   - reranker training and scoring (`qwen_reranker.py`, `vllm_score.py`)
   - candidate-side features (`cand_side.py`, `cand_side_v9.py`)
-  - final stacker (`v12_combo.py`)
+  - test-like hidden-owner frames (`hidden_sim.py`) and the final stacker (`v16.py`; `v12_combo.py` for the reference stacker)
 - `src/configs/`: YAML configs.
 - **Entry point:** `cd src && bash scripts/run_all.sh` runs every stage in order and writes `output/matching_results.tsv` and `output/candidate_pairs.tsv` (see `README.md`).
 
 ### B. Additional Results
 - Reranker AUC on the 272k uncertain validation pairs: Model A 0.953 | bge-reranker (fine-tuned) 0.907 | Qwen3-Reranker-4B zero-shot 0.689 | **Qwen3-Reranker-4B fine-tuned 0.976**. On address-less pairs: bge 0.721 → Qwen 0.921.
-- The prior probability that a record belongs to some S1 is lower in test (~60%) than in train (74%). This fits the stable ~0.004–0.005 gap between out-of-fold and leaderboard scores.
+- The prior probability that a record belongs to some S1 is lower in test (~60%) than in train (74%); simulating this explains part of the ~0.004 gap between out-of-fold and leaderboard scores.
+- The rest of the gap is most likely France (15% of test, not in train): with US/India near 0.990, the leaderboard implies France ≈ 0.97. French businesses here are mostly associations with generic names ("club", "amicale", "comité des fêtes") and France shows 3× more borderline decisions. Rules that added or removed French matches were tested on the leaderboard and made it worse, so France is left to the learned model.
+- Tested and rejected (no gain or worse): higher cut-offs (0.85: 0.9863), per-business expected-F0.5 decision rule (0.99035 vs 0.99040 OOF), a French same-address rule (LB 0.980), zero-shot Qwen for France (LB 0.981), lower cut-off for address-less pairs.
