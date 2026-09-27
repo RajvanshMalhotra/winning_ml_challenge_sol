@@ -11,7 +11,7 @@ rm -f "$C/src/scripts/hpc.sh"
 cp docs/package_README.md "$C/README.md"
 cp docs/requirements_pinned.txt "$C/requirements.txt"
 cp docs/requirements_vllm_pinned.txt "$C/requirements-vllm.txt"
-sed -e "s/TEAM_NAME/${TEAM}/" -e "s/TEAM_MEMBERS/${MEMBERS}/" docs/Documentation_final.md > "$P/Documentation_template.md"
+sed -e "s/TEAM_NAME/${TEAM_DISPLAY:-$TEAM}/" -e "s/TEAM_MEMBERS/${MEMBERS}/" docs/Documentation_final.md > "$P/Documentation_template.md"
 cp "$SUBDIR/matching_results.tsv" "$SUBDIR/candidate_pairs.tsv" "$P/output/"
 python3 data/student_resource/utils/validate_submission.py --matching "$P/output/matching_results.tsv" \
     --candidate "$P/output/candidate_pairs.tsv" --test-dir data/student_resource/dataset/test | tail -2
