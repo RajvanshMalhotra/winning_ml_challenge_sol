@@ -70,6 +70,10 @@ step $PY scripts/v16.py final
 step $PY scripts/v16.py submit
 # 15. France: short French lesson for the reranker on the labelled French practice set (data/.../proxy_fr), then for
 #     FRANCE ROWS ONLY the reranker score = average (logit) of the v13 Qwen and the French-tuned Qwen
+#     The practice set is generated from the test France S1 records with train-measured noise (no labels, no external data)
+step $PY -m ber --config configs/v2.yaml proxy measure
+step $PY -m ber --config configs/v2.yaml proxy build
+step $PY -m ber --config configs/v2.yaml proxy build --name proxy_fr_holdout --seed 7
 step $PY scripts/qwen_fr_pairs.py
 step env QR_MEM=0.85 QF_MIN=30 QF_BS=16 $PY scripts/qwen_fr.py train
 step $PY scripts/qwen_fr.py merge
