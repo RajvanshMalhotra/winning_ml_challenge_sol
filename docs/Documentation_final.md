@@ -7,7 +7,7 @@
 ---
 
 ## 1. Executive Summary
-We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 candidates per business). A LightGBM matcher scores every candidate pair. A **fine-tuned Qwen3-Reranker-4B cross-encoder** (LoRA, Apache-2.0) then re-reads every uncertain pair. A final LightGBM stacker adds **candidate-side "competition" features**: it asks, from each S2/S3 record's point of view, which of *all* S1 businesses owns it. Because test contains far more records whose owner is absent from S1, the stacker is trained on **test-like frames** in which a share of training businesses is hidden. The final decision is a precision-oriented cut-off plus a one-owner rule. Out-of-fold macro F0.5 on held-out training businesses is **0.9904** (0.990 under test-like conditions); the best public leaderboard score is **0.98709** (v16).
+We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 candidates per business). A LightGBM matcher scores every candidate pair. A **fine-tuned Qwen3-Reranker-4B cross-encoder** (LoRA, Apache-2.0) then re-reads every uncertain pair. A final LightGBM stacker adds **candidate-side "competition" features**: it asks, from each S2/S3 record's point of view, which of *all* S1 businesses owns it. Because test contains far more records whose owner is absent from S1, the stacker is trained on **test-like frames** in which a share of training businesses is hidden. The final decision is a precision-oriented cut-off plus a one-owner rule. Out-of-fold macro F0.5 on held-out training businesses is **0.9904** (0.990 under test-like conditions); the best public leaderboard score is **0.987427** (final submission).
 
 ---
 
@@ -26,7 +26,8 @@ We use a multi-channel blocking stage that keeps 99.9% of true matches (≈130 c
 **Core Innovation:**
 1. **Candidate-side competition.** For each (S1, record) pair we compute how this S1 ranks among **all** S1s that have the record as a candidate: by dense similarity, TF-IDF, name similarity and Model A probability, together with the margin to the best other S1 and the number of competitors. This turns per-pair scoring into an implicit global assignment. It raised precision on address-less records from 87% to 97% and gave the largest single gain (+0.005).
 2. **Test-like training for the stacker.** In test only ~60% of S2/S3 records have their owner in S1 (74% in train), so a decoy often looks *uncontested*. We recompute the competition features with 20% of the (non-validation) training businesses hidden, in 3 random samples, and train the stacker on these frames. Under test-like conditions this lifts validation F0.5 from 0.9897 to 0.9901, mostly on singletons (0.9907 → 0.9932), and it improved the leaderboard (0.9864 → 0.98663).
-3. **Fine-tuned Qwen3-Reranker-4B.** It is trained on hard negatives (wrong-owner records, namesakes, same-building businesses) and hard positives (address-less copies, gibberish names, digit typos). As a reranker its AUC on uncertain pairs is **0.976**, versus 0.907 for the fine-tuned bge-reranker it replaced.
+3. **France-specific handling without retraining the pipeline.** France (15% of test, absent from train) has 8–15× more acronym records than US/India, and Model A (trained on US/India features) often scores their true owner below 0.01, so the reranker never reads them. We route unassigned French acronym records and the businesses whose initials match to the reranker and accept only confident answers (+3.4k matches). For French pairs, the reranker score is the average of the base model and a copy fine-tuned for 30 minutes on a labelled French practice set. Together: +0.00034 on the leaderboard.
+4. **Fine-tuned Qwen3-Reranker-4B.** It is trained on hard negatives (wrong-owner records, namesakes, same-building businesses) and hard positives (address-less copies, gibberish names, digit typos). As a reranker its AUC on uncertain pairs is **0.976**, versus 0.907 for the fine-tuned bge-reranker it replaced.
 
 ---
 
@@ -89,7 +90,8 @@ Blocking runs per country and per learned *state group* (states that the data of
 | v8 | + candidate-side competition features | 0.9885 | 0.983 |
 | v12 | + Model-A competition / cluster support; fine-tuned Qwen3-Reranker-4B replaces bge | 0.9904 | 0.9864 |
 | v14 | + stacker trained on test-like hidden-owner frames | 0.9901 (test-like) | 0.98663 |
-| **v16** | + further-trained Qwen, three rerankers side by side, stronger stacker, 3 hidden samples | **0.9904 (test-like)** | **0.98709** |
+| v16 | + further-trained Qwen, three rerankers side by side, stronger stacker, 3 hidden samples | 0.9904 (test-like) | 0.98709 |
+| **final** | + France: French-tuned Qwen blended with the base Qwen (France rows only) and **acronym routing** (French `AJ` → *Association du Jeu*) | – | **0.987427** |
 
 - **F_0.5 Score (macro):** **0.9904** out-of-fold (singletons 0.9939, India 0.9913, US 0.9898); 0.9904 under test-like hidden-owner conditions for the final model.
 - **Common false positives (wrong merges):**

@@ -54,7 +54,7 @@ def pairs() -> None:
     oth = fr[fr.source != 1].copy()
     oth["acr"] = oth.name_raw.map(acronym)
     acr = oth[oth.acr != ""]
-    m = pd.read_csv("artifacts/submissions/v16/matching_results.tsv", sep="\t", dtype=str, keep_default_na=False)
+    m = pd.read_csv("artifacts/submissions/" + os.environ.get("ACR_BASE", "v16") + "/matching_results.tsv", sep="\t", dtype=str, keep_default_na=False)
     taken = {c for v in m.matched_entity_ids if v for c in v.split(",")}
     free = acr[~acr.entity_id.isin(taken)]
     print(f"France acronym records {len(acr):,}; not assigned by v16 {len(free):,}", flush=True)

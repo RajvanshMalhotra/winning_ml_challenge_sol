@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end reproduction of the final submission (v16): data -> blocking -> Model A -> Qwen reranker -> stacker -> output/.
+# End-to-end reproduction of the final submission (v16frmixacr, leaderboard 0.987427): data -> blocking -> Model A -> Qwen reranker -> stacker -> output/.
 # Run from the code root with the `ber` env active (see README.md). GPU steps are marked [GPU].
 # Paths (data dir, run dir, validator) come from configs/base.yaml + configs/v2.yaml; artifacts land in artifacts/v2/.
 set -euo pipefail
@@ -68,5 +68,18 @@ step $PY scripts/hidden_sim.py 0.2 2
 step $PY scripts/v16.py ablate
 step $PY scripts/v16.py final
 step $PY scripts/v16.py submit
-mkdir -p output && cp artifacts/submissions/v16/matching_results.tsv artifacts/submissions/v16/candidate_pairs.tsv output/
+# 15. France: short French lesson for the reranker on the labelled French practice set (data/.../proxy_fr), then for
+#     FRANCE ROWS ONLY the reranker score = average (logit) of the v13 Qwen and the French-tuned Qwen
+step $PY scripts/qwen_fr_pairs.py
+step env QR_MEM=0.85 QF_MIN=30 QF_BS=16 $PY scripts/qwen_fr.py train
+step $PY scripts/qwen_fr.py merge
+step $PY scripts/qwen_fr.py score_test
+step $PY -c "import pandas as pd; n=pd.read_parquet('artifacts/v2/reranker_qwen_fr/test_qwen_fr.parquet'); o=pd.read_parquet('artifacts/v2/reranker_qwen3/test_qwen.parquet').rename(columns={'rr2':'rr_old'}); m=n.merge(o,on=['s1_id','cand_id']); m['rr_fr']=(m.rr_fr+m.rr_old)/2; m[['s1_id','cand_id','rr_fr']].to_parquet('artifacts/v2/reranker_qwen_fr/test_qwen_frmix.parquet',index=False)"
+step env FR_RR=artifacts/v2/reranker_qwen_fr/test_qwen_frmix.parquet V16_SUB=v16frmix $PY scripts/v16.py submit
+# 16. France acronym routing: unassigned French acronym records (e.g. "AJ") + S1s with matching initials -> Qwen reads
+#     them -> added when Qwen >= 0.9 and clearly ahead (all pairs Qwen read are added to the candidate set)
+step $PY scripts/fr_acronym.py pairs
+step $PY scripts/fr_acronym.py score
+step $PY scripts/fr_acronym.py splice artifacts/submissions/v16frmix artifacts/submissions/final 0.9
+mkdir -p output && cp artifacts/submissions/final/matching_results.tsv artifacts/submissions/final/candidate_pairs.tsv output/
 echo "done: output/matching_results.tsv, output/candidate_pairs.tsv"
