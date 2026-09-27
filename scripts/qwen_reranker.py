@@ -228,7 +228,7 @@ def vllm_mem() -> float:
     import torch
     free, total = torch.cuda.mem_get_info()
     frac = min(float(os.environ.get("QR_VLLM_MEM", 0.6)), (free - 6e9) / total)
-    assert frac * total > 20e9, f"only {free / 1e9:.0f} GB free on the GPU; vLLM needs ~20 GB"
+    assert frac * total > 12e9, f"only {free / 1e9:.0f} GB free on the GPU; vLLM needs ~12 GB"
     log(f"vLLM memory fraction {frac:.2f} ({frac * total / 1e9:.0f} GB; {free / 1e9:.0f} GB free)")
     return round(frac, 3)
 

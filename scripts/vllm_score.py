@@ -38,4 +38,10 @@ for i in range(0, len(P), CH):
     print(f"[{time.perf_counter() - t0:6.0f}s] scored {done:,}/{len(P):,} | {done / (time.perf_counter() - t0):.1f} pairs/s", flush=True)
 P[["s1_id", "cand_id"]].assign(score=np.concatenate(parts)).to_parquet(dst, index=False)
 print("saved", dst, flush=True)
+import psutil
+for ch in psutil.Process().children(recursive=True):   # kill the engine-core child too, or it keeps its GPU memory
+    try:
+        ch.kill()
+    except Exception:
+        pass
 os._exit(0)   # vLLM can hang at interpreter shutdown; results are already on disk

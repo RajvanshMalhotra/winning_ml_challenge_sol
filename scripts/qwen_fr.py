@@ -127,4 +127,4 @@ def score_test() -> None:
     log("saved")
 
 
-{"train": train, "check": check, "score_test": score_test}[ACTION]()
+{"train": train, "check": check, "score_test": score_test, "merge": lambda: print("merged", merged_new(), flush=True)}[ACTION]()
