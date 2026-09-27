@@ -88,7 +88,10 @@ def training_pairs() -> pd.DataFrame:
     owner = {c: s for s, m in truth.items() for c in m}
     sp = pd.read_parquet(RD / "splits.parquet")
     at = sp[sp.split == "A_train"]
-    s1 = (at if N_S1 <= 0 or N_S1 >= len(at) else at.sample(N_S1, random_state=cfg["seed"])).s1_id.tolist()
+    skip = int(os.environ.get("QR_SKIP", 0))       # continue-training: drop the S1s an earlier run already used
+    if skip:
+        at = at.drop(at.sample(skip, random_state=cfg["seed"]).index)
+    s1 = (at if N_S1 <= 0 or N_S1 >= len(at) else at.sample(N_S1, random_state=cfg["seed"] + (1 if skip else 0))).s1_id.tolist()
     flt = ds.field("s1_id").isin(s1)
     c = ds.dataset(RD / "cand_sparse_train.parquet").to_table(
         columns=["s1_id", "cand_id", "tfidf_rank", "key_hits", "name_sim"], filter=flt).to_pandas()
@@ -140,8 +143,14 @@ def train() -> None:
     if os.environ.get("QR_GC", "1") == "1":
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
-    model = get_peft_model(model, LoraConfig(r=32, lora_alpha=64, lora_dropout=0.05, task_type="CAUSAL_LM",
-                                             target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]))
+    init = os.environ.get("QR_INIT")                # continue from an earlier adapter
+    if init:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, init, is_trainable=True)
+        log(f"continuing from adapter {init}")
+    else:
+        model = get_peft_model(model, LoraConfig(r=32, lora_alpha=64, lora_dropout=0.05, task_type="CAUSAL_LM",
+                                                 target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]))
     for p in model.parameters():
         if p.requires_grad:
             p.data = p.data.float()
@@ -160,7 +169,7 @@ def train() -> None:
     P = [P[k] for b in order for k in b]
     y = y[torch.from_numpy(np.concatenate(order))]
     n_steps = math.ceil(len(P) / bs / accum)
-    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=1e-4, weight_decay=0.0)
+    opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=float(os.environ.get("QR_LR", 1e-4)), weight_decay=0.0)
     warm = max(1, int(0.05 * n_steps))
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / warm) * 0.5 * (1 + math.cos(math.pi * min(s, n_steps) / n_steps)))
     lossf = torch.nn.BCEWithLogitsLoss()
@@ -247,7 +256,7 @@ def score_vllm(fam: str, pairs: pd.DataFrame) -> np.ndarray:
         return got.score.to_numpy().astype(np.float32)
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     env["PYTHONNOUSERSITE"] = "1"
-    r = subprocess.run([os.path.expanduser("~/vllm-sol/bin/python"), "-u", "scripts/vllm_score.py", str(src), str(merged),
+    r = subprocess.run([os.environ.get("VLLM_PY", os.path.expanduser("~/vllm-sol/bin/python")), "-u", "scripts/vllm_score.py", str(src), str(merged),
                         str(dst), str(vllm_mem())], env=env)
     assert r.returncode == 0, "vLLM scoring failed"
     got = pd.read_parquet(dst)
