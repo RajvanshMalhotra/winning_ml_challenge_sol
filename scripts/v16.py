@@ -129,17 +129,27 @@ def submit() -> None:
     bge = pd.read_parquet(RD / "reranker_v3" / "test_band_scores.parquet", columns=["s1_id", "cand_id", "rr"])
     f = f.merge(q2.rename(columns={"rr2": "rr_q2"}), on=["s1_id", "cand_id"], how="left")
     f = f.merge(bge.rename(columns={"rr": "rr_bge"}), on=["s1_id", "cand_id"], how="left")
+    fr_rr = os.environ.get("FR_RR")                                      # optional: French-tuned reranker for France rows
+    if fr_rr:
+        q = pd.read_parquet(fr_rr)[["s1_id", "cand_id", "rr_fr"]]
+        f = f.merge(q, on=["s1_id", "cand_id"], how="left")
+        m = f.rr_fr.notna().to_numpy()
+        f.loc[m, "rr"] = f.loc[m, "rr_fr"].to_numpy()
+        g = f.groupby("s1_id").rr
+        f["rr_rank"] = g.rank(ascending=False, method="first").fillna(99).astype(np.int16)
+        f["rr_gap"] = (g.transform("max") - f.rr).astype(np.float32)
+        log(f"France rows re-scored by the French-tuned reranker: {int(m.sum()):,}")
     f["d_q2"] = (sig(f.rr) - sig(f.rr_q2)).astype(np.float32)
     f["d_bge"] = (sig(f.rr) - f.rr_bge).astype(np.float32)
     models = [lgb.Booster(model_file=str(p)) for sd in SEEDS for p in sorted(OUT.glob(f"{sd}_fold*.txt"))]
     log(f"{len(models)} models, variant {ch['variant']}, tau {ch['tau']}")
     p = np.mean([m.predict(f[feats], num_iteration=m.best_iteration) for m in models], axis=0)
     sc = pd.DataFrame({"s1_id": f.s1_id, "cand_id": f.cand_id, "p": p})
-    sc.to_parquet(OUT / "test_final_scores.parquet", index=False)
+    sc.to_parquet(OUT / f"test_final_scores_{os.environ.get('V16_SUB', 'v16')}.parquet", index=False)
     pred = decide(sc, ch["tau"])
     rec = pd.read_parquet(records_path(G["cfg"], "test"), columns=["entity_id", "source", "country"])
     s1_all = rec.entity_id[rec.source == 1].tolist()
-    out = Path("artifacts/submissions/v16")
+    out = Path("artifacts/submissions/" + os.environ.get("V16_SUB", "v16"))
     write_submission(s1_all, pred, f.groupby("s1_id").cand_id.agg(set).to_dict(), out)
     n = pd.Series({s: len(x) for s, x in pred.items()}).reindex(s1_all, fill_value=0)
     ctry = rec.set_index("entity_id").country.reindex(n.index).to_numpy()
