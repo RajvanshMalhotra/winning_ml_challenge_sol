@@ -64,6 +64,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tau", type=float, default=None, help="cut-off; default = best tau from the OOF metrics")
     parser.add_argument("--chunk", type=int, default=200_000, help="S1s per scoring chunk")
     parser.add_argument("--out", default="output", help="folder for the two submission TSVs")
+    parser.add_argument("--s1-country", default=None, help="score only the S1s of this country (scores only)")
     parser.add_argument("--family", default="test", help="test (scores + submission) or train (scores only, for stacker features)")
 
 
@@ -89,7 +90,7 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
     rec = pd.read_parquet(records_path(cfg, fam), columns=REC_COLS).set_index("entity_id")
     idf = name_idf(rec.reset_index()) if "name_idf_jacc" in feat_names else None
     ctx = candidate_context(cand_sparse_path(cfg, fam))
-    s1_all = rec.index[rec.source == 1].tolist()
+    s1_all = rec.index[(rec.source == 1) & ((rec.country == args.s1_country) if args.s1_country else True)].tolist()
     scored = []
     for i in range(0, len(s1_all), args.chunk):
         s1 = s1_all[i:i + args.chunk]
@@ -114,6 +115,10 @@ def run(cfg: dict, args: argparse.Namespace) -> None:
         scored.append(pd.DataFrame({"s1_id": pairs.s1_id.to_numpy(), "cand_id": pairs.cand_id.to_numpy(), "p": p}))
         print(f"  scored S1 {i + len(s1):,}/{len(s1_all):,} ({len(pairs):,} pairs, {time.perf_counter() - t0:.0f}s)", flush=True)
     scored = pd.concat(scored, ignore_index=True)
+    if args.s1_country:
+        scored.to_parquet(rd / f"{fam}_scores_{args.models}_{args.s1_country}.parquet", index=False)
+        print(f"wrote {fam}_scores_{args.models}_{args.s1_country}.parquet: {len(scored):,} pairs", flush=True)
+        return
     if fam != "test":  # train: scores only (stacker competition features), no submission
         scored.to_parquet(rd / f"{fam}_scores_{args.models}.parquet", index=False)
         print(f"wrote {fam}_scores_{args.models}.parquet: {len(scored):,} pairs, {time.perf_counter() - t0:.0f}s", flush=True)

@@ -19,12 +19,14 @@ class Lexicon:
     postal: dict[str, re.Pattern]  # country label -> postal-code regex (applied to folded text)
     # first token -> [(pattern tokens, canonical)], longest pattern first
     legal_index: dict[str, list[tuple[tuple[str, ...], str]]]
+    city_state: dict[str, dict[str, str]] = None  # country -> {folded city: state}, used when no state is written
+    country_abbr: dict[str, dict[str, str]] = None  # country -> abbreviation overrides (e.g. France: st -> saint)
 
 
 @lru_cache(maxsize=1)
 def load_lexicon() -> Lexicon:
     fillers, stop, addr_f = set(), set(), set()
-    abbr, states, native, legal, postal = {}, {}, {}, {}, {}
+    abbr, states, native, legal, postal, city, cabbr = {}, {}, {}, {}, {}, {}, {}
     for name in FILES:
         d = yaml.safe_load((Path(__file__).parent / name).read_text())
         fillers |= set(d.get("fillers", []))
@@ -34,6 +36,8 @@ def load_lexicon() -> Lexicon:
         states.update(d.get("states", {}) or {})
         native.update(d.get("native", {}) or {})
         postal.update(d.get("postal", {}) or {})
+        city.update(d.get("city_state", {}) or {})
+        cabbr.update(d.get("country_abbreviations", {}) or {})
         for canon, variants in d.get("legal_suffixes", {}).items():
             for v in variants:
                 toks = tuple(v.split())
@@ -43,4 +47,5 @@ def load_lexicon() -> Lexicon:
     # str(k) guards state codes against YAML 1.1 booleans (yes/no/on/off); list entries like "no" must be quoted
     states = {c: {str(k): v for k, v in m.items()} for c, m in states.items()}
     postal = {c: re.compile(p) for c, p in postal.items()}
-    return Lexicon(frozenset(fillers), frozenset(stop), frozenset(addr_f), abbr, states, native, postal, legal)
+    cabbr = {c: {**abbr, **m} for c, m in cabbr.items()}
+    return Lexicon(frozenset(fillers), frozenset(stop), frozenset(addr_f), abbr, states, native, postal, legal, city, cabbr)

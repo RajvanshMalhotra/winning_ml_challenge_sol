@@ -69,7 +69,12 @@ def _canon_num(tok: str) -> str:
     return tok.replace("-", "").strip("/").lstrip("0") or "0"
 
 
+_NUM_SIGN = re.compile(r"(?<![A-Za-z])[Nn]\s*[°º]\s*")  # French 'N°8' (anyascii would make it 'ndeg8' and lose the number)
+
+
 def normalize_address(raw: str, country: str, lex: Lexicon) -> tuple[str, str, str]:
+    if country in (lex.country_abbr or {}):
+        raw = _NUM_SIGN.sub(" ", raw)
     for native, english in lex.native.items():
         if native in raw:
             raw = raw.replace(native, english)
@@ -88,7 +93,8 @@ def normalize_address(raw: str, country: str, lex: Lexicon) -> tuple[str, str, s
         elif t != "#":
             out.extend(p for p in t.split("-") if p)
         prev = t
-    out = [lex.abbreviations.get(t, t) for t in out]
+    abbr = (lex.country_abbr or {}).get(country, lex.abbreviations)
+    out = [abbr.get(t, t) for t in out]
     out = [t for t in out if t not in lex.addr_fillers]
     return " ".join(out), house_no, " ".join(dict.fromkeys(nums))
 
@@ -206,4 +212,8 @@ def extract_state(raw: str, country: str, lex: Lexicon) -> str:
     if abbr_hits:
         return abbr_hits[-1]
     full_hits = [c for c in comps if c in names]
-    return full_hits[-1] if full_hits else ""
+    if full_hits:
+        return full_hits[-1]
+    city = (lex.city_state or {}).get(country, {})
+    city_hits = [city[c] for c in comps if c in city]
+    return city_hits[-1] if city_hits else ""
