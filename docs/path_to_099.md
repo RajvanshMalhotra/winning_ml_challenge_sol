@@ -1,6 +1,6 @@
 # Path to 0.99 on the leaderboard
 
-_2026-09-27. Leaderboard best: **v14 = 0.98663** (v16 not scored yet). Target: **≥ 0.99**, i.e. **+0.0034**._
+_2026-09-27. Leaderboard best: **v16 = 0.98709**. Target: **≥ 0.99**, i.e. **+0.0029**._
 
 ## 1. Where the missing points are
 
@@ -19,7 +19,8 @@ Test = 46.8% India, 38.2% US, **15.0% France** (France is not in train). Working
 | Submission | LB | Conclusion |
 |---|---|---|
 | v12 | 0.9864 | baseline |
-| v14 (hidden-owner stacker) | **0.98663** | the prior-shift fix works (+0.0002) |
+| v14 (hidden-owner stacker) | 0.98663 | the prior-shift fix works (+0.0002) |
+| v16 (3 rerankers, stronger test-like stacker) | **0.98709** | best so far (+0.0005 over v14) |
 | v12, cut-off 0.85 | 0.9863 | global cut-off changes don't help |
 | v12_fraddr (+ France same-address records) | 0.980 | those records are **decoys** (train agrees: realistic-name same-address records are only 16–42% true) |
 | v12_fr90 / v12_frp2 (fewer France matches) | worse | France is **not** over-accepting at the margin |
@@ -56,10 +57,9 @@ What happens to France's 23,986 acronym records (v14):
 | 1 | **Acronym routing:** send each France acronym record's initials-matching businesses (~6k pairs) to Qwen; add an initials blocking key for the 1,353 records with no such candidate | GPU, minutes | +0.0003 to +0.0004 |
 | 2 | **Measure how much Model A under-scores France in general:** Qwen scores a sample of France's best candidates below 0.01. If acronyms are just one case of this, it is the main France lever | GPU, ~1 h | sizes the remaining ~90% of France's gap |
 | 3 | If step 2 confirms it: **widen Qwen's coverage for France** (top-k candidates per business and per record), with the stacker trained on the same extended coverage (Qwen scores for validation pairs below 0.01 as well) | GPU, several hours | potentially most of France's +0.0034 |
-| 4 | Upload **v16** (3 rerankers, test-like stacker) | ready | pending |
-| 5 | Keep hidden-owner training (v14/v16) for US/India | done | +0.0002 (measured) |
+| 4 | Keep hidden-owner training and 3 rerankers (v16) as the base | done | +0.0007 over v12 (measured) |
 
-Together, steps 1–5 are the realistic route to **~0.989–0.991**. **0.99 depends on steps 2–3 working for France.**
+Together, steps 1–4 are the realistic route to **~0.989–0.991**. **0.99 depends on steps 2–3 working for France.**
 
 **Note on the French reranker fine-tune (`chain_fr.sh`):** it trains on the proxy-France set, which was generated with US/India noise:
 - it has **no acronym noise**
